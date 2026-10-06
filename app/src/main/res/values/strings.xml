@@ -12,4 +12,6 @@
     <string name="menu_chip">Chip koordinat: %1$s</string>
     <string name="menu_maptype">Tipe peta: %1$s</string>
     <string name="menu_follow">Mode ikuti: %1$s</string>
+    <string name="btn_grb">Play/stop marker GRB</string>
+    <string name="btn_gjk">Play/stop marker GJK</string>
 </resources>
