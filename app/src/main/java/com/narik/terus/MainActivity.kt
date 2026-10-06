@@ -8,6 +8,7 @@ import android.location.Location
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.provider.Settings
 import android.view.View
 import android.widget.ImageView
@@ -43,6 +44,10 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
         /** Durasi animasi gabungan kompas + terbang ke titik biru (ms). */
         private const val FLY_ANIM_MS = 400
+
+        /** Konfigurasi menu rahasia ala Developer Options. */
+        private const val SECRET_TAPS_REQUIRED = 7
+        private const val SECRET_TAP_TIMEOUT_MS = 2_000L
     }
 
     private lateinit var fusedLocationClient: FusedLocationProviderClient
@@ -50,6 +55,11 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private lateinit var imgCenterPin: ImageView
     private lateinit var chipCoords: TextView
     private lateinit var buttonsContainer: View
+    private lateinit var btnSecret: ImageView
+    private lateinit var menuPanel: View
+    private lateinit var menuRowChip: TextView
+    private lateinit var menuRowMapType: TextView
+    private lateinit var menuRowFollow: TextView
 
     private var map: GoogleMap? = null
     private var followMode = false
@@ -59,6 +69,10 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     /** true = chip sudah boleh menampilkan koordinat (ada fix lokasi ATAU user pernah menggeser map). */
     private var chipActive = false
+
+    /** Penghitung tap rahasia. */
+    private var secretTapCount = 0
+    private var lastSecretTapAt = 0L
 
     // ------------------------------------------------------------ onCreate
 
@@ -75,16 +89,38 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         imgCenterPin = findViewById(R.id.img_center_pin)
         chipCoords = findViewById(R.id.chip_coords)
         buttonsContainer = findViewById(R.id.buttons_container)
+        btnSecret = findViewById(R.id.btn_secret)
+        menuPanel = findViewById(R.id.menu_panel)
+        menuRowChip = findViewById(R.id.menu_row_chip)
+        menuRowMapType = findViewById(R.id.menu_row_maptype)
+        menuRowFollow = findViewById(R.id.menu_row_follow)
         keepOverlaysClearOfSystemBars()
 
-        // Urutan kanan bawah : autofocus -> zoom in -> zoom out
+        // Urutan kanan bawah : (rahasia) -> autofocus -> zoom in -> zoom out
         findViewById<View>(R.id.btn_autofocus).setOnClickListener { onAutofocusTapped() }
         findViewById<View>(R.id.btn_zoom_in).setOnClickListener { zoomToMax() }
         findViewById<View>(R.id.btn_zoom_out).setOnClickListener { zoomOut() }
 
-        // Pin & chip = saklar hide/unhide chip koordinat
-        imgCenterPin.setOnClickListener { toggleCoordsChip() }
-        chipCoords.setOnClickListener { toggleCoordsChip() }
+        // Pin = pemicu rahasia 7x tap (senyap, tanpa info apa pun)
+        imgCenterPin.setOnClickListener { onPinTapped() }
+
+        // Icon NT = buka/tutup panel menu rahasia
+        btnSecret.setOnClickListener { toggleMenuPanel() }
+
+        // Baris-baris menu rahasia
+        menuRowChip.setOnClickListener {
+            toggleCoordsChip()
+            refreshMenuLabels()
+        }
+        menuRowMapType.setOnClickListener {
+            toggleMapType()
+            refreshMenuLabels()
+        }
+        menuRowFollow.setOnClickListener {
+            toggleFollow()
+            refreshMenuLabels()
+        }
+        refreshMenuLabels()
 
         (supportFragmentManager.findFragmentById(R.id.map) as SupportMapFragment)
             .getMapAsync(this)
@@ -121,17 +157,19 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             updateCoordsChip()
         }
 
+        // Jaminan nilai akhir tepat setelah kamera berhenti
+        googleMap.setOnCameraIdleListener { updateCoordsChip() }
+
         // Geser/putar map manual = matikan mode ikuti + aktifkan chip
         googleMap.setOnCameraMoveStartedListener { reason ->
             if (reason == GoogleMap.OnCameraMoveStartedListener.REASON_GESTURE) {
                 followMode = false
                 chipActive = true
+                refreshMenuLabels()
             }
         }
 
-        // Jaminan nilai akhir tepat setelah kamera berhenti
-        googleMap.setOnCameraIdleListener { updateCoordsChip() }
-
+        refreshMenuLabels()
         if (hasLocationPermission()) enableMyLocation()
     }
 
@@ -141,7 +179,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     // ------------------------------------------------------- chip koordinat
 
-    /** Tap pin / tap chip : sembunyikan atau tampilkan chip koordinat. */
+    /** Sembunyikan/tampilkan chip koordinat (dari tap chip / menu rahasia). */
     private fun toggleCoordsChip() {
         chipCoords.isVisible = !chipCoords.isVisible
     }
@@ -160,12 +198,59 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         if (chipCoords.text != text) chipCoords.text = text
     }
 
+    // -------------------------------------------------- menu rahasia (7x tap)
+
+    /**
+     * Hitung tap pin secara SENYAP. 7x tap berturut-turut (jeda < 2 dtk)
+     * menampilkan/menyembunyikan icon menu rahasia. Tanpa dialog/toast.
+     */
+    private fun onPinTapped() {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastSecretTapAt > SECRET_TAP_TIMEOUT_MS) secretTapCount = 0
+        lastSecretTapAt = now
+        if (++secretTapCount >= SECRET_TAPS_REQUIRED) {
+            secretTapCount = 0
+            btnSecret.isVisible = !btnSecret.isVisible
+            if (!btnSecret.isVisible) menuPanel.isVisible = false // tutup juga menunya
+        }
+    }
+
+    private fun toggleMenuPanel() {
+        menuPanel.isVisible = !menuPanel.isVisible
+    }
+
+    private fun toggleMapType() {
+        val googleMap = map ?: return
+        googleMap.mapType = if (googleMap.mapType == GoogleMap.MAP_TYPE_NORMAL)
+            GoogleMap.MAP_TYPE_SATELLITE
+        else
+            GoogleMap.MAP_TYPE_NORMAL
+    }
+
+    private fun toggleFollow() {
+        followMode = !followMode
+    }
+
+    /** Sinkronkan label state di menu rahasia. */
+    private fun refreshMenuLabels() {
+        menuRowChip.text = getString(
+            R.string.menu_chip, if (chipCoords.isVisible) "AKTIF" else "MATI"
+        )
+        menuRowMapType.text = getString(
+            R.string.menu_maptype,
+            if (map?.mapType == GoogleMap.MAP_TYPE_SATELLITE) "SATELIT" else "NORMAL"
+        )
+        menuRowFollow.text = getString(
+            R.string.menu_follow, if (followMode) "AKTIF" else "MATI"
+        )
+    }
+
     // ------------------------------------------------------------- tombol
 
     /**
      * Tap autofocus : DUA fungsi sekaligus dalam SATU animasi.
      * 1. KOMPAS    — map diputar kembali ke utara 0°
-     * 2. AUTOFOCUS — kamera terbang ke titik biru
+     * 2. AUTOFOCUS — kamera terbang ke titik biru, mendarat di zoom 17
      * Setelah itu kamera TERUS mengikuti titik biru.
      */
     @SuppressLint("MissingPermission")
@@ -176,12 +261,12 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             return
         }
         followMode = true
+        refreshMenuLabels()
 
         val myLocation: Location? = googleMap.myLocation
         if (myLocation != null) {
             flyNorthTo(myLocation)
         } else {
-            // Belum ada fix: luruskan utara dulu, terbang menyusul begitu lokasi datang
             animateBearing(0f)
             fusedLocationClient.lastLocation.addOnSuccessListener { loc ->
                 if (loc != null && followMode) flyNorthTo(loc)
