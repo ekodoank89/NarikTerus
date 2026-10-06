@@ -11,9 +11,8 @@
         android:layout_height="match_parent" />
 
     <!--
-        Pin tetap di tengah layar.
-        UJUNG BAWAH pin tepat di titik tengah layar (= pusat titik biru).
-        Rumus: translationY = -(tinggiImageView / 2)  →  56/2 = 28dp
+        Pin tetap di tengah layar. UJUNG BAWAH pin tepat di pusat layar.
+        Dapat di-tap untuk hide/unhide chip koordinat.
     -->
     <ImageView
         android:id="@+id/img_center_pin"
@@ -25,6 +24,29 @@
         android:elevation="4dp"
         android:src="@drawable/ic_pin"
         android:contentDescription="@string/center_pin" />
+
+    <!--
+        Chip koordinat — bawah tengah layar.
+        Menampilkan koordinat pusat kamera (posisi pin).
+        Tap chip = sembunyikan; tap pin = tampilkan/sembunyikan.
+    -->
+    <TextView
+        android:id="@+id/chip_coords"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal|bottom"
+        android:layout_marginBottom="28dp"
+        android:background="@drawable/bg_chip_coords"
+        android:clickable="true"
+        android:focusable="true"
+        android:elevation="5dp"
+        android:fontFamily="monospace"
+        android:paddingHorizontal="16dp"
+        android:paddingVertical="8dp"
+        android:text="@string/coords_placeholder"
+        android:textColor="#202124"
+        android:textSize="13sp"
+        android:contentDescription="@string/coords_chip" />
 
     <!-- Tombol kanan bawah : autofocus, zoom in, zoom out -->
     <LinearLayout
