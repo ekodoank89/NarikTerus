@@ -5,13 +5,13 @@
     <string name="autofocus">Autofokus ke titik biru + kompas ke utara</string>
     <string name="zoom_in">Zoom maksimal</string>
     <string name="zoom_out">Zoom keluar</string>
-    <string name="coords_chip">Koordinat pin (tap: sembunyikan)</string>
+    <string name="coords_chip">Koordinat (tap: sembunyikan)</string>
     <string name="coords_placeholder">Menunggu lokasi…</string>
     <string name="secret_menu">Menu</string>
     <string name="close_menu">Tutup</string>
-    <string name="menu_chip">Chip koordinat: %1$s</string>
-    <string name="menu_maptype">Tipe peta: %1$s</string>
-    <string name="menu_follow">Mode ikuti: %1$s</string>
+    <string name="menu_chip_pin">Chip koordinat pin: %1$s</string>
+    <string name="menu_chip_grb">Chip koordinat GRB: %1$s</string>
+    <string name="menu_chip_gjk">Chip koordinat GJK: %1$s</string>
     <string name="btn_grb">Play/stop marker GRB</string>
     <string name="btn_gjk">Play/stop marker GJK</string>
 </resources>
