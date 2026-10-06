@@ -37,6 +37,12 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         private const val DEFAULT_ZOOM = 17f
         private const val REQ_PERMS = 1
         private const val REQ_BACKGROUND = 2
+
+        /** Ambang: bearing dalam rentang ini (derajat) dianggap masih menghadap utara. */
+        private const val NORTH_THRESHOLD = 1f
+
+        /** Durasi animasi kompas kembali ke utara (ms). */
+        private const val COMPASS_ANIM_MS = 300
     }
 
     private lateinit var fusedLocationClient: FusedLocationProviderClient
@@ -65,10 +71,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         keepButtonsClearOfSystemBars()
 
         // Urutan kanan bawah : autofocus -> zoom in -> zoom out
-        findViewById<View>(R.id.btn_autofocus).apply {
-            setOnClickListener { focusOnBlueDot() }
-            setOnLongClickListener { resetNorth(); true } // fungsi kompas: kembali ke utara
-        }
+        findViewById<View>(R.id.btn_autofocus).setOnClickListener { onAutofocusTapped() }
         findViewById<View>(R.id.btn_zoom_in).setOnClickListener { zoomToMax() }
         findViewById<View>(R.id.btn_zoom_out).setOnClickListener { zoomOut() }
 
@@ -100,13 +103,13 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             isTiltGesturesEnabled = true
         }
 
-        // Kompas di dalam tombol autofocus berputar mengikuti arah peta
+        // Ikon kompas di tombol autofocus berputar mengikuti arah peta
         updateCompass(googleMap.cameraPosition.bearing)
         googleMap.setOnCameraMoveListener {
             updateCompass(googleMap.cameraPosition.bearing)
         }
 
-        // Geser map manual = matikan mode ikuti
+        // Geser/putar map manual = matikan mode ikuti
         googleMap.setOnCameraMoveStartedListener { reason ->
             if (reason == GoogleMap.OnCameraMoveStartedListener.REASON_GESTURE) {
                 followMode = false
@@ -121,6 +124,41 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     }
 
     // ------------------------------------------------------------- tombol
+
+    /**
+     * Tombol autofocus — fungsi ganda:
+     * - Map sedang DIPUTAR (bearing != 0) -> fungsi KOMPAS:
+     *   map berputar kembali ke utara 0°.
+     * - Map sudah menghadap utara -> fungsi AUTOFOCUS:
+     *   kamera terbang ke titik biru lalu terus mengikutinya.
+     */
+    private fun onAutofocusTapped() {
+        if (isMapRotated()) {
+            resetNorth()
+        } else {
+            focusOnBlueDot()
+        }
+    }
+
+    private fun isMapRotated(): Boolean {
+        val bearing = map?.cameraPosition?.bearing ?: 0f
+        val normalized = (bearing % 360f + 360f) % 360f // selalu 0..360
+        return normalized > NORTH_THRESHOLD && normalized < 360f - NORTH_THRESHOLD
+    }
+
+    /** Kompas: putar kembali ke utara 0° tanpa mengubah posisi/zoom peta. */
+    private fun resetNorth() {
+        val googleMap = map ?: return
+        googleMap.animateCamera(
+            CameraUpdateFactory.newCameraPosition(
+                CameraPosition.Builder(googleMap.cameraPosition)
+                    .bearing(0f)
+                    .build()
+            ),
+            COMPASS_ANIM_MS,
+            null
+        )
+    }
 
     /** Tap autofocus : kamera terbang ke titik biru lalu TERUS mengikutinya. */
     @SuppressLint("MissingPermission")
@@ -153,16 +191,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private fun zoomOut() {
         val googleMap = map ?: return
         googleMap.animateCamera(CameraUpdateFactory.zoomOut())
-    }
-
-    /** Tahan (long-press) tombol autofocus : putar kamera kembali ke utara 0°. */
-    private fun resetNorth() {
-        val googleMap = map ?: return
-        googleMap.animateCamera(
-            CameraUpdateFactory.newCameraPosition(
-                CameraPosition.Builder(googleMap.cameraPosition).bearing(0f).build()
-            )
-        )
     }
 
     private fun moveTo(location: Location) {
@@ -250,7 +278,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         if (granted) return
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            // Android 11+: opsi "Selalu izinkan" hanya ada di Pengaturan
             if (!askedBackgroundSettings) {
                 askedBackgroundSettings = true
                 Toast.makeText(
