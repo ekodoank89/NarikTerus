@@ -14,7 +14,6 @@ android {
         versionCode 1
         versionName "1.0"
 
-        // API key diambil dari secret MAPS_API_KEY saat build
         manifestPlaceholders["MAPS_API_KEY"] = System.getenv("MAPS_API_KEY") ?: ""
     }
 
@@ -29,7 +28,10 @@ android {
 
     buildTypes {
         release {
-            minifyEnabled false
+            // ===== R8 DIAKTIFKAN =====
+            minifyEnabled true            // shrink + obfuscate + optimize kode
+            shrinkResources true          // buang resource yang tak terpakai
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             signingConfig signingConfigs.release
         }
     }
