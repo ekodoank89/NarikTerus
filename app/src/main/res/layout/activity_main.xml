@@ -10,13 +10,18 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <!-- Pin tetap di tengah layar (ujung pin tepat di titik tengah) -->
+    <!--
+        Pin tetap di tengah layar.
+        UJUNG BAWAH pin tepat di titik tengah layar (= pusat titik biru).
+        Rumus: translationY = -(tinggiImageView / 2)  →  56/2 = 28dp
+    -->
     <ImageView
         android:id="@+id/img_center_pin"
-        android:layout_width="48dp"
-        android:layout_height="64dp"
+        android:layout_width="56dp"
+        android:layout_height="56dp"
         android:layout_gravity="center"
-        android:translationY="-32dp"
+        android:translationY="-28dp"
+        android:scaleType="fitCenter"
         android:elevation="4dp"
         android:src="@drawable/ic_pin"
         android:contentDescription="@string/center_pin" />
@@ -30,7 +35,7 @@
         android:orientation="vertical"
         android:padding="16dp">
 
-        <!-- 1. Autofokus + kompas -->
+        <!-- 1. Autofokus + kompas (2 fungsi dalam 1 tap) -->
         <FrameLayout
             android:id="@+id/btn_autofocus"
             android:layout_width="56dp"
