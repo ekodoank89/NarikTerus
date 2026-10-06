@@ -1,10 +1,14 @@
 <resources>
     <string name="app_name">NarikTerus</string>
     <string name="xposed_description">NarikTerus — modul LSPosed (peta full screen &amp; pelacak posisi terus-menerus).</string>
-    <string name="center_pin">Pin tengah (tap: tampilkan/sembunyikan koordinat)</string>
+    <string name="center_pin">Pin tengah</string>
     <string name="autofocus">Autofokus ke titik biru + kompas ke utara</string>
     <string name="zoom_in">Zoom maksimal</string>
     <string name="zoom_out">Zoom keluar</string>
     <string name="coords_chip">Koordinat pin (tap: sembunyikan)</string>
     <string name="coords_placeholder">Menunggu lokasi…</string>
+    <string name="secret_menu">Menu</string>
+    <string name="menu_chip">Chip koordinat: %1$s</string>
+    <string name="menu_maptype">Tipe peta: %1$s</string>
+    <string name="menu_follow">Mode ikuti: %1$s</string>
 </resources>
