@@ -41,10 +41,7 @@
         android:textSize="13sp"
         android:contentDescription="@string/coords_chip" />
 
-    <!--
-        Panel menu rahasia — OVERLAY di TENGAH layar.
-        Berada di luar LinearLayout tombol, jadi icon NT TIDAK bergeser.
-    -->
+    <!-- Panel menu rahasia — overlay tengah -->
     <FrameLayout
         android:id="@+id/menu_panel"
         android:layout_width="wrap_content"
@@ -60,7 +57,6 @@
             android:layout_height="wrap_content"
             android:orientation="vertical">
 
-            <!-- Header: judul + tombol X -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -137,7 +133,7 @@
         android:orientation="vertical"
         android:padding="16dp">
 
-        <!-- Icon NT rahasia: posisinya STATIS, tidak terpengaruh menu -->
+        <!-- Icon NT rahasia -->
         <ImageView
             android:id="@+id/btn_secret"
             android:layout_width="48dp"
@@ -197,6 +193,69 @@
                 android:layout_gravity="center"
                 android:src="@drawable/ic_zoom_out"
                 android:contentDescription="@string/zoom_out" />
+        </FrameLayout>
+    </LinearLayout>
+
+    <!-- Tombol KIRI bawah : GRB, GJK -->
+    <LinearLayout
+        android:id="@+id/service_buttons"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="start|bottom"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <!-- Play/stop GRB -->
+        <FrameLayout
+            android:id="@+id/btn_grb"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_marginBottom="14dp"
+            android:background="@drawable/bg_fab_circle"
+            android:elevation="6dp">
+
+            <ImageView
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:layout_gravity="center"
+                android:src="@drawable/ic_marker_grb"
+                android:contentDescription="@string/btn_grb" />
+
+            <ImageView
+                android:id="@+id/badge_grb"
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:layout_gravity="bottom|end"
+                android:layout_margin="4dp"
+                android:background="@drawable/bg_badge"
+                android:padding="2dp"
+                android:src="@drawable/ic_play" />
+        </FrameLayout>
+
+        <!-- Play/stop GJK -->
+        <FrameLayout
+            android:id="@+id/btn_gjk"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:background="@drawable/bg_fab_circle"
+            android:elevation="6dp">
+
+            <ImageView
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:layout_gravity="center"
+                android:src="@drawable/ic_marker_gjk"
+                android:contentDescription="@string/btn_gjk" />
+
+            <ImageView
+                android:id="@+id/badge_gjk"
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:layout_gravity="bottom|end"
+                android:layout_margin="4dp"
+                android:background="@drawable/bg_badge"
+                android:padding="2dp"
+                android:src="@drawable/ic_play" />
         </FrameLayout>
     </LinearLayout>
 </FrameLayout>
