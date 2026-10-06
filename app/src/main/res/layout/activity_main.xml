@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <!-- Google Map full layar -->
+    <fragment
+        android:id="@+id/map"
+        android:name="com.google.android.gms.maps.SupportMapFragment"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- Pin tetap di tengah layar (tidak ikut bergeser saat map digeser) -->
+    <ImageView
+        android:id="@+id/img_center_pin"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:layout_gravity="center"
+        android:translationY="-15dp"
+        android:elevation="4dp"
+        android:src="@drawable/ic_center_pin"
+        android:contentDescription="@string/center_pin" />
+
+    <!-- Tombol kanan bawah : autofocus, zoom in, zoom out -->
+    <LinearLayout
+        android:id="@+id/buttons_container"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="end|bottom"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <!-- 1. Autofokus ke titik biru + kompas di dalamnya -->
+        <FrameLayout
+            android:id="@+id/btn_autofocus"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_marginBottom="14dp"
+            android:background="@drawable/bg_fab_circle"
+            android:elevation="6dp">
+
+            <ImageView
+                android:id="@+id/img_compass"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:layout_gravity="center"
+                android:src="@drawable/ic_compass"
+                android:contentDescription="@string/autofocus" />
+        </FrameLayout>
+
+        <!-- 2. Zoom in = zoom maksimal -->
+        <FrameLayout
+            android:id="@+id/btn_zoom_in"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_marginBottom="14dp"
+            android:background="@drawable/bg_fab_circle"
+            android:elevation="6dp">
+
+            <ImageView
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:layout_gravity="center"
+                android:src="@drawable/ic_zoom_in"
+                android:contentDescription="@string/zoom_in" />
+        </FrameLayout>
+
+        <!-- 3. Zoom out = default -->
+        <FrameLayout
+            android:id="@+id/btn_zoom_out"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:background="@drawable/bg_fab_circle"
+            android:elevation="6dp">
+
+            <ImageView
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:layout_gravity="center"
+                android:src="@drawable/ic_zoom_out"
+                android:contentDescription="@string/zoom_out" />
+        </FrameLayout>
+    </LinearLayout>
+</FrameLayout>
