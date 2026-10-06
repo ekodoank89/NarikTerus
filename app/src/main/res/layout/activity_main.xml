@@ -10,7 +10,7 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <!-- Pin tengah: pemicu RAHASIA (7x tap). Tidak ada hint apa pun. -->
+    <!-- Pin tengah: pemicu RAHASIA (7x tap) -->
     <ImageView
         android:id="@+id/img_center_pin"
         android:layout_width="56dp"
@@ -41,26 +41,60 @@
         android:textSize="13sp"
         android:contentDescription="@string/coords_chip" />
 
-    <!-- Tombol kanan bawah -->
-    <LinearLayout
-        android:id="@+id/buttons_container"
+    <!--
+        Panel menu rahasia — OVERLAY di TENGAH layar.
+        Berada di luar LinearLayout tombol, jadi icon NT TIDAK bergeser.
+    -->
+    <FrameLayout
+        android:id="@+id/menu_panel"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_gravity="end|bottom"
-        android:orientation="vertical"
-        android:padding="16dp">
+        android:layout_gravity="center"
+        android:minWidth="240dp"
+        android:background="@drawable/bg_menu_panel"
+        android:elevation="9dp"
+        android:visibility="gone">
 
-        <!-- Panel menu rahasia (muncul di atas icon NT) -->
         <LinearLayout
-            android:id="@+id/menu_panel"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="12dp"
-            android:background="@drawable/bg_menu_panel"
-            android:clipToOutline="true"
-            android:elevation="8dp"
-            android:orientation="vertical"
-            android:visibility="gone">
+            android:orientation="vertical">
+
+            <!-- Header: judul + tombol X -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="18dp"
+                android:paddingEnd="10dp"
+                android:paddingTop="8dp"
+                android:paddingBottom="8dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/secret_menu"
+                    android:textColor="#202124"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <ImageView
+                    android:id="@+id/btn_close_menu"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:padding="6dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:src="@drawable/ic_close"
+                    android:contentDescription="@string/close_menu" />
+            </LinearLayout>
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:layout_marginHorizontal="14dp"
+                android:background="#1F000000" />
 
             <TextView
                 android:id="@+id/menu_row_chip"
@@ -68,7 +102,7 @@
                 android:layout_height="wrap_content"
                 android:background="?attr/selectableItemBackground"
                 android:paddingHorizontal="18dp"
-                android:paddingVertical="12dp"
+                android:paddingVertical="13dp"
                 android:textColor="#202124"
                 android:textSize="14sp" />
 
@@ -78,7 +112,7 @@
                 android:layout_height="wrap_content"
                 android:background="?attr/selectableItemBackground"
                 android:paddingHorizontal="18dp"
-                android:paddingVertical="12dp"
+                android:paddingVertical="13dp"
                 android:textColor="#202124"
                 android:textSize="14sp" />
 
@@ -88,12 +122,22 @@
                 android:layout_height="wrap_content"
                 android:background="?attr/selectableItemBackground"
                 android:paddingHorizontal="18dp"
-                android:paddingVertical="12dp"
+                android:paddingVertical="13dp"
                 android:textColor="#202124"
                 android:textSize="14sp" />
         </LinearLayout>
+    </FrameLayout>
 
-        <!-- Icon NT rahasia: tersembunyi sampai pin di-tap 7x -->
+    <!-- Tombol kanan bawah -->
+    <LinearLayout
+        android:id="@+id/buttons_container"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="end|bottom"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <!-- Icon NT rahasia: posisinya STATIS, tidak terpengaruh menu -->
         <ImageView
             android:id="@+id/btn_secret"
             android:layout_width="48dp"
