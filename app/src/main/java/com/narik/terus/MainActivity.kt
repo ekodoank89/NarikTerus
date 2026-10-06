@@ -315,7 +315,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 MarkerOptions()
                     .position(googleMap.cameraPosition.target) // koordinat pin saat play
                     .icon(markerIconAtPinSize(R.drawable.ic_marker_grb))
-                    .anchor(0.5f, 0.5f) // logo bulat -> anchor di tengah
+                    .anchor(0.5f, 1f) // anchor bawah tengah
                     .zIndex(3f)
             )
             updateGrbChipText()
@@ -336,7 +336,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 MarkerOptions()
                     .position(googleMap.cameraPosition.target) // koordinat pin saat play
                     .icon(markerIconAtPinSize(R.drawable.ic_marker_gjk))
-                    .anchor(0.5f, 0.5f)
+                    .anchor(0.5f, 1f)
                     .zIndex(3f)
             )
             updateGjkChipText()
