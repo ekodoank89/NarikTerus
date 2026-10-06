@@ -60,6 +60,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private lateinit var menuRowChip: TextView
     private lateinit var menuRowMapType: TextView
     private lateinit var menuRowFollow: TextView
+    private lateinit var btnCloseMenu: ImageView      // ← tambah
 
     private var map: GoogleMap? = null
     private var followMode = false
@@ -94,6 +95,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         menuRowChip = findViewById(R.id.menu_row_chip)
         menuRowMapType = findViewById(R.id.menu_row_maptype)
         menuRowFollow = findViewById(R.id.menu_row_follow)
+        btnCloseMenu = findViewById(R.id.btn_close_menu)   // ← tambah
         keepOverlaysClearOfSystemBars()
 
         // Urutan kanan bawah : (rahasia) -> autofocus -> zoom in -> zoom out
@@ -119,6 +121,11 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         menuRowFollow.setOnClickListener {
             toggleFollow()
             refreshMenuLabels()
+        }
+        // X : tutup menu + sembunyikan icon rahasia (kembali seperti semula)
+        btnCloseMenu.setOnClickListener {
+            menuPanel.isVisible = false
+            btnSecret.isVisible = false
         }
         refreshMenuLabels()
 
