@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">NarikTerus</string>
+    <string name="xposed_description">NarikTerus — modul LSPosed (peta full screen &amp; pelacak posisi terus-menerus).</string>
+    <string name="center_pin">Pin tengah</string>
+    <string name="autofocus">Autofokus ke titik biru (tahan: arahkan ke utara)</string>
+    <string name="zoom_in">Zoom maksimal</string>
+    <string name="zoom_out">Zoom keluar</string>
+</resources>
