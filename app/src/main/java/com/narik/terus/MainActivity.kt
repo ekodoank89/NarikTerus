@@ -330,15 +330,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         badge.setImageResource(if (playing) R.drawable.ic_stop else R.drawable.ic_play)
         button.alpha = if (playing) 1f else 0.8f
     }
-
-    /** Wujud tombol sesuai state: hijau + ⏹ saat jalan, putih + ▶ saat mati. */
-    private fun updateServiceButtonUi(button: View, badge: ImageView, playing: Boolean) {
-        button.setBackgroundResource(
-            if (playing) R.drawable.bg_fab_active else R.drawable.bg_fab_circle
-        )
-        badge.setImageResource(if (playing) R.drawable.ic_stop else R.drawable.ic_play)
-        button.alpha = if (playing) 1f else 0.8f
-    }
+    
+   
 
     // ------------------------------------------------------------- tombol
 
