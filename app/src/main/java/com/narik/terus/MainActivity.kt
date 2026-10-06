@@ -4,6 +4,8 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.location.Location
 import android.net.Uri
 import android.os.Build
@@ -31,6 +33,7 @@ import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.GoogleMap
 import com.google.android.gms.maps.OnMapReadyCallback
 import com.google.android.gms.maps.SupportMapFragment
+import com.google.android.gms.maps.model.BitmapDescriptor
 import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
@@ -51,12 +54,17 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         /** Konfigurasi menu rahasia ala Developer Options. */
         private const val SECRET_TAPS_REQUIRED = 7
         private const val SECRET_TAP_TIMEOUT_MS = 2_000L
+
+        /** Tinggi marker GRB/GJK = tinggi tampilan pin (56dp). */
+        private const val MARKER_SIZE_DP = 56f
     }
 
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private lateinit var imgCompass: ImageView
     private lateinit var imgCenterPin: ImageView
     private lateinit var chipCoords: TextView
+    private lateinit var chipGrb: TextView
+    private lateinit var chipGjk: TextView
     private lateinit var buttonsContainer: View
     private lateinit var serviceButtons: View
     private lateinit var btnGrb: View
@@ -65,9 +73,9 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private lateinit var badgeGjk: ImageView
     private lateinit var btnSecret: ImageView
     private lateinit var menuPanel: View
-    private lateinit var menuRowChip: TextView
-    private lateinit var menuRowMapType: TextView
-    private lateinit var menuRowFollow: TextView
+    private lateinit var menuRowChipPin: TextView
+    private lateinit var menuRowChipGrb: TextView
+    private lateinit var menuRowChipGjk: TextView
     private lateinit var btnCloseMenu: ImageView
 
     private var map: GoogleMap? = null
@@ -89,6 +97,10 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private var grbPlaying = false
     private var gjkPlaying = false
 
+    /** Toggle chip koordinat GRB/GJK dari menu rahasia (default aktif). */
+    private var showGrbChip = true
+    private var showGjkChip = true
+
     // ------------------------------------------------------------ onCreate
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -103,6 +115,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         imgCompass = findViewById(R.id.img_compass)
         imgCenterPin = findViewById(R.id.img_center_pin)
         chipCoords = findViewById(R.id.chip_coords)
+        chipGrb = findViewById(R.id.chip_coords_grb)
+        chipGjk = findViewById(R.id.chip_coords_gjk)
         buttonsContainer = findViewById(R.id.buttons_container)
         serviceButtons = findViewById(R.id.service_buttons)
         btnGrb = findViewById(R.id.btn_grb)
@@ -111,9 +125,9 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         badgeGjk = findViewById(R.id.badge_gjk)
         btnSecret = findViewById(R.id.btn_secret)
         menuPanel = findViewById(R.id.menu_panel)
-        menuRowChip = findViewById(R.id.menu_row_chip)
-        menuRowMapType = findViewById(R.id.menu_row_maptype)
-        menuRowFollow = findViewById(R.id.menu_row_follow)
+        menuRowChipPin = findViewById(R.id.menu_row_chip_pin)
+        menuRowChipGrb = findViewById(R.id.menu_row_chip_grb)
+        menuRowChipGjk = findViewById(R.id.menu_row_chip_gjk)
         btnCloseMenu = findViewById(R.id.btn_close_menu)
         keepOverlaysClearOfSystemBars()
 
@@ -131,20 +145,25 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         // Pin = pemicu rahasia 7x tap (senyap, tanpa info apa pun)
         imgCenterPin.setOnClickListener { onPinTapped() }
 
+        // Chip pin: tap = sembunyikan (munculkan lagi lewat menu rahasia)
+        chipCoords.setOnClickListener { toggleCoordsChip() }
+
         // Icon NT = buka/tutup panel menu rahasia
         btnSecret.setOnClickListener { toggleMenuPanel() }
 
-        // Baris-baris menu rahasia
-        menuRowChip.setOnClickListener {
+        // Baris-baris menu rahasia (hanya 3 toggle chip)
+        menuRowChipPin.setOnClickListener {
             toggleCoordsChip()
             refreshMenuLabels()
         }
-        menuRowMapType.setOnClickListener {
-            toggleMapType()
+        menuRowChipGrb.setOnClickListener {
+            showGrbChip = !showGrbChip
+            refreshGrbChip()
             refreshMenuLabels()
         }
-        menuRowFollow.setOnClickListener {
-            toggleFollow()
+        menuRowChipGjk.setOnClickListener {
+            showGjkChip = !showGjkChip
+            refreshGjkChip()
             refreshMenuLabels()
         }
 
@@ -183,7 +202,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             isTiltGesturesEnabled = true
         }
 
-        // Ikon kompas + chip koordinat update AGRESIF di setiap frame gerakan
+        // Ikon kompas + chip koordinat pin update AGRESIF di setiap frame gerakan
         updateCompass(googleMap.cameraPosition.bearing)
         googleMap.setOnCameraMoveListener {
             updateCompass(googleMap.cameraPosition.bearing)
@@ -193,16 +212,14 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         // Jaminan nilai akhir tepat setelah kamera berhenti
         googleMap.setOnCameraIdleListener { updateCoordsChip() }
 
-        // Geser/putar map manual = matikan mode ikuti + aktifkan chip
+        // Geser/putar map manual = matikan mode ikuti + aktifkan chip pin
         googleMap.setOnCameraMoveStartedListener { reason ->
             if (reason == GoogleMap.OnCameraMoveStartedListener.REASON_GESTURE) {
                 followMode = false
                 chipActive = true
-                refreshMenuLabels()
             }
         }
 
-        refreshMenuLabels()
         if (hasLocationPermission()) enableMyLocation()
     }
 
@@ -212,23 +229,42 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     // ------------------------------------------------------- chip koordinat
 
-    /** Sembunyikan/tampilkan chip koordinat (dari tap chip / menu rahasia). */
+    /** Format koordinat standar: 6 desimal, Locale.US. */
+    private fun formatLatLng(pos: LatLng): String =
+        String.format(Locale.US, "%.6f, %.6f", pos.latitude, pos.longitude)
+
+    /** Sembunyikan/tampilkan chip koordinat pin (dari tap chip / menu rahasia). */
     private fun toggleCoordsChip() {
         chipCoords.isVisible = !chipCoords.isVisible
     }
 
     /**
-     * Isi chip dengan koordinat pusat kamera = posisi ujung pin.
-     * Dipanggil tiap frame kamera bergerak; guard != mencegah
-     * re-render sia-sia saat target tidak berubah (mis. pinch zoom).
+     * Isi chip pin dengan koordinat pusat kamera = posisi ujung pin.
+     * Dipanggil tiap frame kamera bergerak; guard != mencegah re-render sia-sia.
      */
     private fun updateCoordsChip() {
         if (!chipActive) return // masih tampil "Menunggu lokasi…"
         val target = map?.cameraPosition?.target ?: return
-        val text = String.format(
-            Locale.US, "%.6f, %.6f", target.latitude, target.longitude
-        )
+        val text = formatLatLng(target)
         if (chipCoords.text != text) chipCoords.text = text
+    }
+
+    /** Chip GRB tampil hanya jika toggle AKTIF dan markernya ada. */
+    private fun refreshGrbChip() {
+        chipGrb.isVisible = showGrbChip && grbMarker != null
+    }
+
+    /** Chip GJK tampil hanya jika toggle AKTIF dan markernya ada. */
+    private fun refreshGjkChip() {
+        chipGjk.isVisible = showGjkChip && gjkMarker != null
+    }
+
+    private fun updateGrbChipText() {
+        grbMarker?.position?.let { chipGrb.text = formatLatLng(it) }
+    }
+
+    private fun updateGjkChipText() {
+        gjkMarker?.position?.let { chipGjk.text = formatLatLng(it) }
     }
 
     // -------------------------------------------------- menu rahasia (7x tap)
@@ -252,29 +288,16 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         menuPanel.isVisible = !menuPanel.isVisible
     }
 
-    private fun toggleMapType() {
-        val googleMap = map ?: return
-        googleMap.mapType = if (googleMap.mapType == GoogleMap.MAP_TYPE_NORMAL)
-            GoogleMap.MAP_TYPE_SATELLITE
-        else
-            GoogleMap.MAP_TYPE_NORMAL
-    }
-
-    private fun toggleFollow() {
-        followMode = !followMode
-    }
-
     /** Sinkronkan label state di menu rahasia. */
     private fun refreshMenuLabels() {
-        menuRowChip.text = getString(
-            R.string.menu_chip, if (chipCoords.isVisible) "AKTIF" else "MATI"
+        menuRowChipPin.text = getString(
+            R.string.menu_chip_pin, if (chipCoords.isVisible) "AKTIF" else "MATI"
         )
-        menuRowMapType.text = getString(
-            R.string.menu_maptype,
-            if (map?.mapType == GoogleMap.MAP_TYPE_SATELLITE) "SATELIT" else "NORMAL"
+        menuRowChipGrb.text = getString(
+            R.string.menu_chip_grb, if (showGrbChip) "AKTIF" else "MATI"
         )
-        menuRowFollow.text = getString(
-            R.string.menu_follow, if (followMode) "AKTIF" else "MATI"
+        menuRowChipGjk.text = getString(
+            R.string.menu_chip_gjk, if (showGjkChip) "AKTIF" else "MATI"
         )
     }
 
@@ -282,8 +305,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     /**
      * Play  : patok marker GRB pada KOORDINAT PIN SAAT INI (pusat kamera).
-     * Stop  : hapus marker.
-     * Marker statis — tidak mengikuti lokasi setelah dipatok.
+     * Stop  : hapus marker (chip GRB ikut hilang).
      */
     private fun toggleGrb() {
         val googleMap = map ?: return
@@ -292,14 +314,16 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             grbMarker = googleMap.addMarker(
                 MarkerOptions()
                     .position(googleMap.cameraPosition.target) // koordinat pin saat play
-                    .icon(BitmapDescriptorFactory.fromResource(R.drawable.ic_marker_grb))
+                    .icon(markerIconAtPinSize(R.drawable.ic_marker_grb))
                     .anchor(0.5f, 0.5f) // logo bulat -> anchor di tengah
                     .zIndex(3f)
             )
+            updateGrbChipText()
         } else {
             grbMarker?.remove()
             grbMarker = null
         }
+        refreshGrbChip()
         updateServiceButtonUi(btnGrb, badgeGrb, grbPlaying)
     }
 
@@ -311,15 +335,40 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             gjkMarker = googleMap.addMarker(
                 MarkerOptions()
                     .position(googleMap.cameraPosition.target) // koordinat pin saat play
-                    .icon(BitmapDescriptorFactory.fromResource(R.drawable.ic_marker_gjk))
+                    .icon(markerIconAtPinSize(R.drawable.ic_marker_gjk))
                     .anchor(0.5f, 0.5f)
                     .zIndex(3f)
             )
+            updateGjkChipText()
         } else {
             gjkMarker?.remove()
             gjkMarker = null
         }
+        refreshGjkChip()
         updateServiceButtonUi(btnGjk, badgeGjk, gjkPlaying)
+    }
+
+    /**
+     * Skalakan PNG marker agar tingginya = MARKER_SIZE_DP (56dp, sama dengan pin),
+     * lebar mengikuti rasio asli. Hasilnya marker tampak seukuran pin di semua layar.
+     */
+    private fun markerIconAtPinSize(drawableRes: Int): BitmapDescriptor {
+        val density = resources.displayMetrics.density
+        val targetHeightPx = (MARKER_SIZE_DP * density).toInt().coerceAtLeast(1)
+
+        // Baca dimensi asli tanpa meng decode penuh
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeResource(resources, drawableRes, bounds)
+        val srcW = bounds.outWidth
+        val srcH = bounds.outHeight
+        if (srcW <= 0 || srcH <= 0) {
+            return BitmapDescriptorFactory.fromResource(drawableRes) // fallback aman
+        }
+
+        val src = BitmapFactory.decodeResource(resources, drawableRes, null)
+        val targetWidthPx = (targetHeightPx * (srcW.toFloat() / srcH)).toInt().coerceAtLeast(1)
+        val scaled = Bitmap.createScaledBitmap(src, targetWidthPx, targetHeightPx, true)
+        return BitmapDescriptorFactory.fromBitmap(scaled)
     }
 
     /** Wujud tombol sesuai state: hijau + ⏹ saat jalan, putih + ▶ saat mati. */
@@ -330,8 +379,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         badge.setImageResource(if (playing) R.drawable.ic_stop else R.drawable.ic_play)
         button.alpha = if (playing) 1f else 0.8f
     }
-    
-   
 
     // ------------------------------------------------------------- tombol
 
@@ -339,7 +386,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
      * Tap autofocus : DUA fungsi sekaligus dalam SATU animasi.
      * 1. KOMPAS    — map diputar kembali ke utara 0°
      * 2. AUTOFOCUS — kamera terbang ke titik biru, mendarat di zoom 17
-     * Setelah itu kamera TERUS mengikuti titik biru.
      */
     @SuppressLint("MissingPermission")
     private fun onAutofocusTapped() {
@@ -349,7 +395,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             return
         }
         followMode = true
-        refreshMenuLabels()
 
         val myLocation: Location? = googleMap.myLocation
         if (myLocation != null) {
@@ -453,7 +498,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             override fun onLocationResult(result: LocationResult) {
                 result.lastLocation?.let { loc ->
                     if (followMode) moveTo(loc) // kamera terus mengikuti titik biru
-
                 }
             }
         }
@@ -543,6 +587,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             serviceButtons.translationX = bars.left.toFloat()
             serviceButtons.translationY = -bars.bottom.toFloat()
             chipCoords.translationY = -bars.bottom.toFloat()
+            chipGrb.translationY = -bars.bottom.toFloat()
+            chipGjk.translationY = -bars.bottom.toFloat()
             insets
         }
     }
