@@ -114,10 +114,11 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             isTiltGesturesEnabled = true
         }
 
-        // Ikon kompas di tombol autofocus berputar mengikuti arah peta
+        // Ikon kompas + chip koordinat update AGRESIF di setiap frame gerakan
         updateCompass(googleMap.cameraPosition.bearing)
         googleMap.setOnCameraMoveListener {
             updateCompass(googleMap.cameraPosition.bearing)
+            updateCoordsChip()
         }
 
         // Geser/putar map manual = matikan mode ikuti + aktifkan chip
@@ -128,7 +129,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             }
         }
 
-        // Update isi chip setiap kamera selesai bergerak
+        // Jaminan nilai akhir tepat setelah kamera berhenti
         googleMap.setOnCameraIdleListener { updateCoordsChip() }
 
         if (hasLocationPermission()) enableMyLocation()
@@ -145,13 +146,18 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         chipCoords.isVisible = !chipCoords.isVisible
     }
 
-    /** Isi chip dengan koordinat pusat kamera = posisi ujung pin. */
+    /**
+     * Isi chip dengan koordinat pusat kamera = posisi ujung pin.
+     * Dipanggil tiap frame kamera bergerak; guard != mencegah
+     * re-render sia-sia saat target tidak berubah (mis. pinch zoom).
+     */
     private fun updateCoordsChip() {
         if (!chipActive) return // masih tampil "Menunggu lokasi…"
         val target = map?.cameraPosition?.target ?: return
-        chipCoords.text = String.format(
+        val text = String.format(
             Locale.US, "%.6f, %.6f", target.latitude, target.longitude
         )
+        if (chipCoords.text != text) chipCoords.text = text
     }
 
     // ------------------------------------------------------------- tombol
