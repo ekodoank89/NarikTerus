@@ -8,6 +8,7 @@
     <string name="coords_chip">Koordinat pin (tap: sembunyikan)</string>
     <string name="coords_placeholder">Menunggu lokasi…</string>
     <string name="secret_menu">Menu</string>
+    <string name="close_menu">Tutup</string>
     <string name="menu_chip">Chip koordinat: %1$s</string>
     <string name="menu_maptype">Tipe peta: %1$s</string>
     <string name="menu_follow">Mode ikuti: %1$s</string>
