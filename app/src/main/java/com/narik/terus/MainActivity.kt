@@ -38,11 +38,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         private const val REQ_PERMS = 1
         private const val REQ_BACKGROUND = 2
 
-        /** Ambang: bearing dalam rentang ini (derajat) dianggap masih menghadap utara. */
-        private const val NORTH_THRESHOLD = 1f
-
-        /** Durasi animasi kompas kembali ke utara (ms). */
-        private const val COMPASS_ANIM_MS = 300
+        /** Durasi animasi gabungan kompas + terbang ke titik biru (ms). */
+        private const val FLY_ANIM_MS = 400
     }
 
     private lateinit var fusedLocationClient: FusedLocationProviderClient
@@ -126,43 +123,13 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     // ------------------------------------------------------------- tombol
 
     /**
-     * Tombol autofocus — fungsi ganda:
-     * - Map sedang DIPUTAR (bearing != 0) -> fungsi KOMPAS:
-     *   map berputar kembali ke utara 0°.
-     * - Map sudah menghadap utara -> fungsi AUTOFOCUS:
-     *   kamera terbang ke titik biru lalu terus mengikutinya.
+     * Tap autofocus : DUA fungsi sekaligus dalam SATU animasi.
+     * 1. KOMPAS    — map diputar kembali ke utara 0°
+     * 2. AUTOFOCUS — kamera terbang ke titik biru
+     * Setelah itu kamera TERUS mengikuti titik biru.
      */
-    private fun onAutofocusTapped() {
-        if (isMapRotated()) {
-            resetNorth()
-        } else {
-            focusOnBlueDot()
-        }
-    }
-
-    private fun isMapRotated(): Boolean {
-        val bearing = map?.cameraPosition?.bearing ?: 0f
-        val normalized = (bearing % 360f + 360f) % 360f // selalu 0..360
-        return normalized > NORTH_THRESHOLD && normalized < 360f - NORTH_THRESHOLD
-    }
-
-    /** Kompas: putar kembali ke utara 0° tanpa mengubah posisi/zoom peta. */
-    private fun resetNorth() {
-        val googleMap = map ?: return
-        googleMap.animateCamera(
-            CameraUpdateFactory.newCameraPosition(
-                CameraPosition.Builder(googleMap.cameraPosition)
-                    .bearing(0f)
-                    .build()
-            ),
-            COMPASS_ANIM_MS,
-            null
-        )
-    }
-
-    /** Tap autofocus : kamera terbang ke titik biru lalu TERUS mengikutinya. */
     @SuppressLint("MissingPermission")
-    private fun focusOnBlueDot() {
+    private fun onAutofocusTapped() {
         val googleMap = map ?: return
         if (!hasLocationPermission()) {
             requestMainPermissions()
@@ -172,13 +139,45 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
         val myLocation: Location? = googleMap.myLocation
         if (myLocation != null) {
-            moveTo(myLocation)
+            flyNorthTo(myLocation)
         } else {
+            // Belum ada fix: luruskan utara dulu, terbang menyusul begitu lokasi datang
+            animateBearing(0f)
             fusedLocationClient.lastLocation.addOnSuccessListener { loc ->
-                if (loc != null && followMode) moveTo(loc)
+                if (loc != null && followMode) flyNorthTo(loc)
             }
             startLocationUpdates()
         }
+    }
+
+    /** Satu animasi gabungan: target = titik biru, bearing = 0° utara, zoom min DEFAULT_ZOOM. */
+    private fun flyNorthTo(location: Location) {
+        val googleMap = map ?: return
+        googleMap.animateCamera(
+            CameraUpdateFactory.newCameraPosition(
+                CameraPosition.Builder(googleMap.cameraPosition)
+                    .target(LatLng(location.latitude, location.longitude))
+                    .zoom(maxOf(googleMap.cameraPosition.zoom, DEFAULT_ZOOM))
+                    .bearing(0f)
+                    .build()
+            ),
+            FLY_ANIM_MS,
+            null
+        )
+    }
+
+    /** Putar kamera ke bearing tertentu tanpa mengubah posisi/zoom. */
+    private fun animateBearing(bearing: Float) {
+        val googleMap = map ?: return
+        googleMap.animateCamera(
+            CameraUpdateFactory.newCameraPosition(
+                CameraPosition.Builder(googleMap.cameraPosition)
+                    .bearing(bearing)
+                    .build()
+            ),
+            FLY_ANIM_MS,
+            null
+        )
     }
 
     /** Zoom in : langsung lompat ke zoom MAKSIMAL. */
@@ -193,6 +192,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         googleMap.animateCamera(CameraUpdateFactory.zoomOut())
     }
 
+    /** Gerakkan kamera ke lokasi (dipakai saat mode ikuti aktif). */
     private fun moveTo(location: Location) {
         val googleMap = map ?: return
         val target = LatLng(location.latitude, location.longitude)
