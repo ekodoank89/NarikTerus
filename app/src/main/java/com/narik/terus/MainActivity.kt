@@ -280,11 +280,22 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     // --------------------------------------------------- marker GRB / GJK
 
+    /**
+     * Play  : patok marker GRB pada KOORDINAT PIN SAAT INI (pusat kamera).
+     * Stop  : hapus marker.
+     * Marker statis — tidak mengikuti lokasi setelah dipatok.
+     */
     private fun toggleGrb() {
-        if (map == null) return
+        val googleMap = map ?: return
         grbPlaying = !grbPlaying
         if (grbPlaying) {
-            currentLatLng()?.let { placeGrbMarker(it) }
+            grbMarker = googleMap.addMarker(
+                MarkerOptions()
+                    .position(googleMap.cameraPosition.target) // koordinat pin saat play
+                    .icon(BitmapDescriptorFactory.fromResource(R.drawable.ic_marker_grb))
+                    .anchor(0.5f, 0.5f) // logo bulat -> anchor di tengah
+                    .zIndex(3f)
+            )
         } else {
             grbMarker?.remove()
             grbMarker = null
@@ -292,11 +303,18 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         updateServiceButtonUi(btnGrb, badgeGrb, grbPlaying)
     }
 
+    /** Sama seperti GRB, menggunakan ic_marker_gjk.png. */
     private fun toggleGjk() {
-        if (map == null) return
+        val googleMap = map ?: return
         gjkPlaying = !gjkPlaying
         if (gjkPlaying) {
-            currentLatLng()?.let { placeGjkMarker(it) }
+            gjkMarker = googleMap.addMarker(
+                MarkerOptions()
+                    .position(googleMap.cameraPosition.target) // koordinat pin saat play
+                    .icon(BitmapDescriptorFactory.fromResource(R.drawable.ic_marker_gjk))
+                    .anchor(0.5f, 0.5f)
+                    .zIndex(3f)
+            )
         } else {
             gjkMarker?.remove()
             gjkMarker = null
@@ -304,43 +322,13 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         updateServiceButtonUi(btnGjk, badgeGjk, gjkPlaying)
     }
 
-    private fun placeGrbMarker(pos: LatLng) {
-        if (grbMarker != null) {
-            grbMarker?.position = pos
-            return
-        }
-        grbMarker = map?.addMarker(
-            MarkerOptions()
-                .position(pos)
-                .icon(BitmapDescriptorFactory.fromResource(R.drawable.ic_marker_grb))
-                .anchor(0.5f, 0.5f) // logo bulat -> anchor di tengah
-                .zIndex(3f)
+    /** Wujud tombol sesuai state: hijau + ⏹ saat jalan, putih + ▶ saat mati. */
+    private fun updateServiceButtonUi(button: View, badge: ImageView, playing: Boolean) {
+        button.setBackgroundResource(
+            if (playing) R.drawable.bg_fab_active else R.drawable.bg_fab_circle
         )
-    }
-
-    private fun placeGjkMarker(pos: LatLng) {
-        if (gjkMarker != null) {
-            gjkMarker?.position = pos
-            return
-        }
-        gjkMarker = map?.addMarker(
-            MarkerOptions()
-                .position(pos)
-                .icon(BitmapDescriptorFactory.fromResource(R.drawable.ic_marker_gjk))
-                .anchor(0.5f, 0.5f)
-                .zIndex(3f)
-        )
-    }
-
-    /** Lokasi terbaik saat ini: titik biru, atau fallback pusat kamera (posisi pin). */
-    private fun currentLatLng(): LatLng? {
-        val googleMap = map ?: return null
-        if (hasLocationPermission()) {
-            googleMap.myLocation?.let {
-                return LatLng(it.latitude, it.longitude)
-            }
-        }
-        return googleMap.cameraPosition?.target
+        badge.setImageResource(if (playing) R.drawable.ic_stop else R.drawable.ic_play)
+        button.alpha = if (playing) 1f else 0.8f
     }
 
     /** Wujud tombol sesuai state: hijau + ⏹ saat jalan, putih + ▶ saat mati. */
@@ -473,10 +461,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 result.lastLocation?.let { loc ->
                     if (followMode) moveTo(loc) // kamera terus mengikuti titik biru
 
-                    // Marker layanan yang sedang "play" ikut berpindah
-                    val pos = LatLng(loc.latitude, loc.longitude)
-                    if (grbPlaying) placeGrbMarker(pos)
-                    if (gjkPlaying) placeGjkMarker(pos)
                 }
             }
         }
