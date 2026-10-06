@@ -10,10 +10,7 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <!--
-        Pin tetap di tengah layar. UJUNG BAWAH pin tepat di pusat layar.
-        Dapat di-tap untuk hide/unhide chip koordinat.
-    -->
+    <!-- Pin tengah: pemicu RAHASIA (7x tap). Tidak ada hint apa pun. -->
     <ImageView
         android:id="@+id/img_center_pin"
         android:layout_width="56dp"
@@ -25,11 +22,7 @@
         android:src="@drawable/ic_pin"
         android:contentDescription="@string/center_pin" />
 
-    <!--
-        Chip koordinat — bawah tengah layar.
-        Menampilkan koordinat pusat kamera (posisi pin).
-        Tap chip = sembunyikan; tap pin = tampilkan/sembunyikan.
-    -->
+    <!-- Chip koordinat — bawah tengah -->
     <TextView
         android:id="@+id/chip_coords"
         android:layout_width="wrap_content"
@@ -48,7 +41,7 @@
         android:textSize="13sp"
         android:contentDescription="@string/coords_chip" />
 
-    <!-- Tombol kanan bawah : autofocus, zoom in, zoom out -->
+    <!-- Tombol kanan bawah -->
     <LinearLayout
         android:id="@+id/buttons_container"
         android:layout_width="wrap_content"
@@ -57,7 +50,61 @@
         android:orientation="vertical"
         android:padding="16dp">
 
-        <!-- 1. Autofokus + kompas (2 fungsi dalam 1 tap) -->
+        <!-- Panel menu rahasia (muncul di atas icon NT) -->
+        <LinearLayout
+            android:id="@+id/menu_panel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            android:background="@drawable/bg_menu_panel"
+            android:clipToOutline="true"
+            android:elevation="8dp"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/menu_row_chip"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="?attr/selectableItemBackground"
+                android:paddingHorizontal="18dp"
+                android:paddingVertical="12dp"
+                android:textColor="#202124"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/menu_row_maptype"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="?attr/selectableItemBackground"
+                android:paddingHorizontal="18dp"
+                android:paddingVertical="12dp"
+                android:textColor="#202124"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/menu_row_follow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="?attr/selectableItemBackground"
+                android:paddingHorizontal="18dp"
+                android:paddingVertical="12dp"
+                android:textColor="#202124"
+                android:textSize="14sp" />
+        </LinearLayout>
+
+        <!-- Icon NT rahasia: tersembunyi sampai pin di-tap 7x -->
+        <ImageView
+            android:id="@+id/btn_secret"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginBottom="14dp"
+            android:elevation="6dp"
+            android:src="@drawable/ic_secret"
+            android:visibility="gone"
+            android:contentDescription="@string/secret_menu" />
+
+        <!-- 1. Autofokus + kompas -->
         <FrameLayout
             android:id="@+id/btn_autofocus"
             android:layout_width="56dp"
