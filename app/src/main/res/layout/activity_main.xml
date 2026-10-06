@@ -10,15 +10,15 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <!-- Pin tetap di tengah layar (tidak ikut bergeser saat map digeser) -->
+    <!-- Pin tetap di tengah layar (ujung pin tepat di titik tengah) -->
     <ImageView
         android:id="@+id/img_center_pin"
-        android:layout_width="36dp"
-        android:layout_height="36dp"
+        android:layout_width="48dp"
+        android:layout_height="64dp"
         android:layout_gravity="center"
-        android:translationY="-15dp"
+        android:translationY="-32dp"
         android:elevation="4dp"
-        android:src="@drawable/ic_center_pin"
+        android:src="@drawable/ic_pin"
         android:contentDescription="@string/center_pin" />
 
     <!-- Tombol kanan bawah : autofocus, zoom in, zoom out -->
@@ -30,7 +30,7 @@
         android:orientation="vertical"
         android:padding="16dp">
 
-        <!-- 1. Autofokus ke titik biru + kompas di dalamnya -->
+        <!-- 1. Autofokus + kompas -->
         <FrameLayout
             android:id="@+id/btn_autofocus"
             android:layout_width="56dp"
@@ -65,7 +65,7 @@
                 android:contentDescription="@string/zoom_in" />
         </FrameLayout>
 
-        <!-- 3. Zoom out = default -->
+        <!-- 3. Zoom out -->
         <FrameLayout
             android:id="@+id/btn_zoom_out"
             android:layout_width="56dp"
