@@ -31,8 +31,11 @@ import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.GoogleMap
 import com.google.android.gms.maps.OnMapReadyCallback
 import com.google.android.gms.maps.SupportMapFragment
+import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
+import com.google.android.gms.maps.model.Marker
+import com.google.android.gms.maps.model.MarkerOptions
 import java.util.Locale
 
 class MainActivity : AppCompatActivity(), OnMapReadyCallback {
@@ -55,12 +58,17 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private lateinit var imgCenterPin: ImageView
     private lateinit var chipCoords: TextView
     private lateinit var buttonsContainer: View
+    private lateinit var serviceButtons: View
+    private lateinit var btnGrb: View
+    private lateinit var btnGjk: View
+    private lateinit var badgeGrb: ImageView
+    private lateinit var badgeGjk: ImageView
     private lateinit var btnSecret: ImageView
     private lateinit var menuPanel: View
     private lateinit var menuRowChip: TextView
     private lateinit var menuRowMapType: TextView
     private lateinit var menuRowFollow: TextView
-    private lateinit var btnCloseMenu: ImageView      // ← tambah
+    private lateinit var btnCloseMenu: ImageView
 
     private var map: GoogleMap? = null
     private var followMode = false
@@ -74,6 +82,12 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     /** Penghitung tap rahasia. */
     private var secretTapCount = 0
     private var lastSecretTapAt = 0L
+
+    /** Marker layanan + status play. */
+    private var grbMarker: Marker? = null
+    private var gjkMarker: Marker? = null
+    private var grbPlaying = false
+    private var gjkPlaying = false
 
     // ------------------------------------------------------------ onCreate
 
@@ -90,18 +104,29 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         imgCenterPin = findViewById(R.id.img_center_pin)
         chipCoords = findViewById(R.id.chip_coords)
         buttonsContainer = findViewById(R.id.buttons_container)
+        serviceButtons = findViewById(R.id.service_buttons)
+        btnGrb = findViewById(R.id.btn_grb)
+        btnGjk = findViewById(R.id.btn_gjk)
+        badgeGrb = findViewById(R.id.badge_grb)
+        badgeGjk = findViewById(R.id.badge_gjk)
         btnSecret = findViewById(R.id.btn_secret)
         menuPanel = findViewById(R.id.menu_panel)
         menuRowChip = findViewById(R.id.menu_row_chip)
         menuRowMapType = findViewById(R.id.menu_row_maptype)
         menuRowFollow = findViewById(R.id.menu_row_follow)
-        btnCloseMenu = findViewById(R.id.btn_close_menu)   // ← tambah
+        btnCloseMenu = findViewById(R.id.btn_close_menu)
         keepOverlaysClearOfSystemBars()
 
-        // Urutan kanan bawah : (rahasia) -> autofocus -> zoom in -> zoom out
+        // Kanan bawah : (rahasia) -> autofocus -> zoom in -> zoom out
         findViewById<View>(R.id.btn_autofocus).setOnClickListener { onAutofocusTapped() }
         findViewById<View>(R.id.btn_zoom_in).setOnClickListener { zoomToMax() }
         findViewById<View>(R.id.btn_zoom_out).setOnClickListener { zoomOut() }
+
+        // Kiri bawah : play/stop marker GRB & GJK
+        btnGrb.setOnClickListener { toggleGrb() }
+        btnGjk.setOnClickListener { toggleGjk() }
+        updateServiceButtonUi(btnGrb, badgeGrb, false)
+        updateServiceButtonUi(btnGjk, badgeGjk, false)
 
         // Pin = pemicu rahasia 7x tap (senyap, tanpa info apa pun)
         imgCenterPin.setOnClickListener { onPinTapped() }
@@ -122,6 +147,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             toggleFollow()
             refreshMenuLabels()
         }
+
         // X : tutup menu + sembunyikan icon rahasia (kembali seperti semula)
         btnCloseMenu.setOnClickListener {
             menuPanel.isVisible = false
@@ -252,6 +278,80 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         )
     }
 
+    // --------------------------------------------------- marker GRB / GJK
+
+    private fun toggleGrb() {
+        if (map == null) return
+        grbPlaying = !grbPlaying
+        if (grbPlaying) {
+            currentLatLng()?.let { placeGrbMarker(it) }
+        } else {
+            grbMarker?.remove()
+            grbMarker = null
+        }
+        updateServiceButtonUi(btnGrb, badgeGrb, grbPlaying)
+    }
+
+    private fun toggleGjk() {
+        if (map == null) return
+        gjkPlaying = !gjkPlaying
+        if (gjkPlaying) {
+            currentLatLng()?.let { placeGjkMarker(it) }
+        } else {
+            gjkMarker?.remove()
+            gjkMarker = null
+        }
+        updateServiceButtonUi(btnGjk, badgeGjk, gjkPlaying)
+    }
+
+    private fun placeGrbMarker(pos: LatLng) {
+        if (grbMarker != null) {
+            grbMarker?.position = pos
+            return
+        }
+        grbMarker = map?.addMarker(
+            MarkerOptions()
+                .position(pos)
+                .icon(BitmapDescriptorFactory.fromResource(R.drawable.ic_marker_grb))
+                .anchor(0.5f, 0.5f) // logo bulat -> anchor di tengah
+                .zIndex(3f)
+        )
+    }
+
+    private fun placeGjkMarker(pos: LatLng) {
+        if (gjkMarker != null) {
+            gjkMarker?.position = pos
+            return
+        }
+        gjkMarker = map?.addMarker(
+            MarkerOptions()
+                .position(pos)
+                .icon(BitmapDescriptorFactory.fromResource(R.drawable.ic_marker_gjk))
+                .anchor(0.5f, 0.5f)
+                .zIndex(3f)
+        )
+    }
+
+    /** Lokasi terbaik saat ini: titik biru, atau fallback pusat kamera (posisi pin). */
+    private fun currentLatLng(): LatLng? {
+        val googleMap = map ?: return null
+        if (hasLocationPermission()) {
+            googleMap.myLocation?.let {
+                return LatLng(it.latitude, it.longitude)
+            }
+        }
+        return googleMap.cameraPosition?.target
+    }
+
+    /** Wujud tombol sesuai state: hijau + ⏹ saat jalan, putih + ▶ saat mati. */
+    private fun updateServiceButtonUi(button: View, badge: ImageView, playing: Boolean) {
+        button.setBackgroundResource(
+            if (playing) R.drawable.bg_fab_active else R.drawable.bg_fab_circle
+        )
+        badge.setImageResource(if (playing) R.drawable.ic_stop else R.drawable.ic_play)
+        button.alpha = if (playing) 1f else 0.8f
+    }
+
     // ------------------------------------------------------------- tombol
 
     /**
@@ -372,6 +472,11 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             override fun onLocationResult(result: LocationResult) {
                 result.lastLocation?.let { loc ->
                     if (followMode) moveTo(loc) // kamera terus mengikuti titik biru
+
+                    // Marker layanan yang sedang "play" ikut berpindah
+                    val pos = LatLng(loc.latitude, loc.longitude)
+                    if (grbPlaying) placeGrbMarker(pos)
+                    if (gjkPlaying) placeGjkMarker(pos)
                 }
             }
         }
@@ -458,6 +563,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
             buttonsContainer.translationX = -bars.right.toFloat()
             buttonsContainer.translationY = -bars.bottom.toFloat()
+            serviceButtons.translationX = bars.left.toFloat()
+            serviceButtons.translationY = -bars.bottom.toFloat()
             chipCoords.translationY = -bars.bottom.toFloat()
             insets
         }
