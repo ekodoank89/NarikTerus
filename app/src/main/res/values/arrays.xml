@@ -1,0 +1,6 @@
+<resources>
+    <!-- Scope LSPosed: proses yang akan di-hook. Tambahkan paket lain bila perlu. -->
+    <string-array name="xposed_scope">
+        <item>android</item>
+    </string-array>
+</resources>
