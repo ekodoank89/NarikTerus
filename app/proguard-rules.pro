@@ -29,3 +29,8 @@
 # (AAR-nya sudah membawa consumer rules sendiri; ini jaring pengaman)
 # ------------------------------------------------------------
 -dontwarn com.google.android.gms.**
+
+# ------------------------------------------------------------
+# biarkan R8 merapikan modifier internal (lebih agresif)
+# ------------------------------------------------------------
+-allowaccessmodification
