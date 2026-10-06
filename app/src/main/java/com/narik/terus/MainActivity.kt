@@ -184,14 +184,14 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         }
     }
 
-    /** Satu animasi gabungan: target = titik biru, bearing = 0° utara, zoom min DEFAULT_ZOOM. */
+    /** Satu animasi gabungan: target = titik biru, bearing = 0° utara, selalu mendarat di zoom 17. */
     private fun flyNorthTo(location: Location) {
         val googleMap = map ?: return
         googleMap.animateCamera(
             CameraUpdateFactory.newCameraPosition(
                 CameraPosition.Builder(googleMap.cameraPosition)
                     .target(LatLng(location.latitude, location.longitude))
-                    .zoom(maxOf(googleMap.cameraPosition.zoom, DEFAULT_ZOOM))
+                    .zoom(DEFAULT_ZOOM)
                     .bearing(0f)
                     .build()
             ),
