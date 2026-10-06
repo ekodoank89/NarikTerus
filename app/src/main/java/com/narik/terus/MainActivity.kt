@@ -11,6 +11,7 @@ import android.os.Bundle
 import android.provider.Settings
 import android.view.View
 import android.widget.ImageView
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
@@ -18,6 +19,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.isVisible
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
@@ -30,6 +32,7 @@ import com.google.android.gms.maps.OnMapReadyCallback
 import com.google.android.gms.maps.SupportMapFragment
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
+import java.util.Locale
 
 class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
@@ -44,6 +47,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private lateinit var imgCompass: ImageView
+    private lateinit var imgCenterPin: ImageView
+    private lateinit var chipCoords: TextView
     private lateinit var buttonsContainer: View
 
     private var map: GoogleMap? = null
@@ -51,6 +56,9 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private var firstFixApplied = false
     private var askedBackgroundSettings = false
     private var locationCallback: LocationCallback? = null
+
+    /** true = chip sudah boleh menampilkan koordinat (ada fix lokasi ATAU user pernah menggeser map). */
+    private var chipActive = false
 
     // ------------------------------------------------------------ onCreate
 
@@ -64,13 +72,19 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
 
         imgCompass = findViewById(R.id.img_compass)
+        imgCenterPin = findViewById(R.id.img_center_pin)
+        chipCoords = findViewById(R.id.chip_coords)
         buttonsContainer = findViewById(R.id.buttons_container)
-        keepButtonsClearOfSystemBars()
+        keepOverlaysClearOfSystemBars()
 
         // Urutan kanan bawah : autofocus -> zoom in -> zoom out
         findViewById<View>(R.id.btn_autofocus).setOnClickListener { onAutofocusTapped() }
         findViewById<View>(R.id.btn_zoom_in).setOnClickListener { zoomToMax() }
         findViewById<View>(R.id.btn_zoom_out).setOnClickListener { zoomOut() }
+
+        // Pin & chip = saklar hide/unhide chip koordinat
+        imgCenterPin.setOnClickListener { toggleCoordsChip() }
+        chipCoords.setOnClickListener { toggleCoordsChip() }
 
         (supportFragmentManager.findFragmentById(R.id.map) as SupportMapFragment)
             .getMapAsync(this)
@@ -106,18 +120,38 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             updateCompass(googleMap.cameraPosition.bearing)
         }
 
-        // Geser/putar map manual = matikan mode ikuti
+        // Geser/putar map manual = matikan mode ikuti + aktifkan chip
         googleMap.setOnCameraMoveStartedListener { reason ->
             if (reason == GoogleMap.OnCameraMoveStartedListener.REASON_GESTURE) {
                 followMode = false
+                chipActive = true
             }
         }
+
+        // Update isi chip setiap kamera selesai bergerak
+        googleMap.setOnCameraIdleListener { updateCoordsChip() }
 
         if (hasLocationPermission()) enableMyLocation()
     }
 
     private fun updateCompass(bearing: Float) {
         imgCompass.rotation = -bearing
+    }
+
+    // ------------------------------------------------------- chip koordinat
+
+    /** Tap pin / tap chip : sembunyikan atau tampilkan chip koordinat. */
+    private fun toggleCoordsChip() {
+        chipCoords.isVisible = !chipCoords.isVisible
+    }
+
+    /** Isi chip dengan koordinat pusat kamera = posisi ujung pin. */
+    private fun updateCoordsChip() {
+        if (!chipActive) return // masih tampil "Menunggu lokasi…"
+        val target = map?.cameraPosition?.target ?: return
+        chipCoords.text = String.format(
+            Locale.US, "%.6f, %.6f", target.latitude, target.longitude
+        )
     }
 
     // ------------------------------------------------------------- tombol
@@ -217,6 +251,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         fusedLocationClient.lastLocation.addOnSuccessListener { loc ->
             if (loc != null && !firstFixApplied) {
                 firstFixApplied = true
+                chipActive = true
                 googleMap.moveCamera(
                     CameraUpdateFactory.newLatLngZoom(
                         LatLng(loc.latitude, loc.longitude), DEFAULT_ZOOM
@@ -318,11 +353,14 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     // ---------------------------------------------------------------- insets
 
-    private fun keepButtonsClearOfSystemBars() {
-        ViewCompat.setOnApplyWindowInsetsListener(buttonsContainer) { view, insets ->
+    /** Angkat chip & tombol di atas navigation bar (mode edge-to-edge). */
+    private fun keepOverlaysClearOfSystemBars() {
+        val root = findViewById<View>(android.R.id.content)
+        ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            view.translationX = -bars.right.toFloat()
-            view.translationY = -bars.bottom.toFloat()
+            buttonsContainer.translationX = -bars.right.toFloat()
+            buttonsContainer.translationY = -bars.bottom.toFloat()
+            chipCoords.translationY = -bars.bottom.toFloat()
             insets
         }
     }
