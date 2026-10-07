@@ -11,6 +11,8 @@ object HookContract {
 
     const val ACTION_STATE = "com.narik.terus.ACTION_STATE"
     const val ACTION_QUERY = "com.narik.terus.ACTION_QUERY"
+    const val ACTION_TRIGGER = "com.narik.terus.ACTION_TRIGGER"   // auto-stop
+    const val ACTION_RECENT = "com.narik.terus.ACTION_RECENT"     // payload recent
 
     const val KEY_CHANNEL = "channel"
     const val KEY_PACKAGE = "package"
@@ -18,6 +20,10 @@ object HookContract {
     const val KEY_LAT = "lat"
     const val KEY_LNG = "lng"
     const val KEY_METHODS = "methods"
+
+    // Trigger payload
+    const val KEY_PAYLOAD = "payload"
+    const val KEY_MATCHED = "matched"
 
     const val DEFAULT_TARGET_GRB = "com.pierwiastek.gpsdata"
     const val DEFAULT_TARGET_GJK = "com.khalnadj.khaledhabbachi.gps"
