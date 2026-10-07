@@ -683,10 +683,15 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                     row.findViewById<TextView>(R.id.fav_coords).text =
                         formatLatLng(LatLng(f.lat, f.lng))
 
-                    // Tap nama = play/stop channel di koordinat favorite
+                    // Tap nama = pindahkan pin ke koordinat favorite,
+                    // tutup menu, lalu PLAY channel di titik itu.
                     row.findViewById<View>(R.id.fav_row_click).setOnClickListener {
+                        val pos = LatLng(f.lat, f.lng)
+                        map?.animateCamera(CameraUpdateFactory.newLatLng(pos))
+                        chipActive = true      // chip langsung menampilkan koordinat
+                        followMode = false     // play di titik statis, bukan ikut titik biru
                         if (playingFor(ch)) stopChannel(ch)
-                        else startChannel(ch, LatLng(f.lat, f.lng))
+                        startChannel(ch, pos)  // selalu play di koordinat favorite
                         dlg?.dismiss()
                     }
 
