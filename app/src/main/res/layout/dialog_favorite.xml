@@ -88,6 +88,12 @@
                 android:text="@string/fav_save" />
         </LinearLayout>
 
+        <!-- SEPARATOR: DARI PIN | MANUAL -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#1F000000" />
+
         <TextView
             android:id="@+id/header_manual_grb"
             android:layout_width="match_parent"
@@ -140,6 +146,12 @@
                 android:text="@string/fav_save" />
         </LinearLayout>
 
+        <!-- SEPARATOR: MANUAL | LIST FAVORITE -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#1F000000" />
+
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -150,7 +162,12 @@
             android:textSize="14sp"
             android:textStyle="bold" />
 
-        <!-- Hanya daftar yang scroll; header & label tetap di posisi -->
+        <!-- SEPARATOR: LIST FAVORITE | isi list -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#1F000000" />
+
         <ScrollView
             android:layout_width="match_parent"
             android:layout_height="280dp">
@@ -233,6 +250,12 @@
                 android:text="@string/fav_save" />
         </LinearLayout>
 
+        <!-- SEPARATOR: DARI PIN | MANUAL -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#1F000000" />
+
         <TextView
             android:id="@+id/header_manual_gjk"
             android:layout_width="match_parent"
@@ -285,6 +308,12 @@
                 android:text="@string/fav_save" />
         </LinearLayout>
 
+        <!-- SEPARATOR: MANUAL | LIST FAVORITE -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#1F000000" />
+
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -295,7 +324,12 @@
             android:textSize="14sp"
             android:textStyle="bold" />
 
-        <!-- Hanya daftar yang scroll; header & label tetap di posisi -->
+        <!-- SEPARATOR: LIST FAVORITE | isi list -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#1F000000" />
+
         <ScrollView
             android:layout_width="match_parent"
             android:layout_height="280dp">
