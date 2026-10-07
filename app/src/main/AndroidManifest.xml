@@ -39,7 +39,15 @@
         <receiver
             android:name=".StateQueryReceiver"
             android:exported="true" />
+        
+        <receiver
+            android:name=".TriggerReceiver"
+            android:exported="true" />
 
+        <receiver
+            android:name=".RecentReceiver"
+            android:exported="true" />
+        
         <activity
             android:name=".MainActivity"
             android:exported="true"
