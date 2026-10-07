@@ -4,6 +4,8 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -163,6 +165,16 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private var grbJitterRunning = false
     private var gjkJitterRunning = false
     private val jitterHandler = Handler(Looper.getMainLooper())
+    /** Penerima trigger auto-stop dari hook (order masuk) — real-time. */
+    private val triggerReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action != HookContract.ACTION_TRIGGER) return
+            val channel = intent.getStringExtra(HookContract.KEY_CHANNEL) ?: return
+            runOnUiThread {
+                if (playingFor(channel)) stopChannel(channel)
+            }
+        }
+    }
     private val random = Random()
 
     private val statePrefs by lazy { getSharedPreferences(PREFS_NAME, MODE_PRIVATE) }
@@ -213,6 +225,17 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         valTriggerGrb = findViewById(R.id.val_trigger_grb)
         valTriggerGjk = findViewById(R.id.val_trigger_gjk)
         keepOverlaysClearOfSystemBars()
+        // Real-time auto-stop: receiver ini menghentikan channel (jitter +
+        // marker + tombol) seketika saat hook melaporkan order masuk.
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(
+                triggerReceiver,
+                IntentFilter(HookContract.ACTION_TRIGGER),
+                Context.RECEIVER_EXPORTED
+            )
+        } else {
+            registerReceiver(triggerReceiver, IntentFilter(HookContract.ACTION_TRIGGER))
+        }
 
         grbTarget = statePrefs.getString("grb_target", grbTarget) ?: grbTarget
         gjkTarget = statePrefs.getString("gjk_target", gjkTarget) ?: gjkTarget
@@ -292,6 +315,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         gjkJitterRunning = false
         jitterHandler.removeCallbacksAndMessages(null)
         locationCallback?.let { fusedLocationClient.removeLocationUpdates(it) }
+        runCatching { unregisterReceiver(triggerReceiver) }
         super.onDestroy()
     }
 
@@ -1096,10 +1120,17 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         }
     }
 
-    private fun jitterTick(channel: String) {
+        private fun jitterTick(channel: String) {
         val running = if (channel == "grb") grbJitterRunning else gjkJitterRunning
         if (!running) return
+        // Guard auto-stop: bila prefs sudah play=false (trigger order masuk),
+        // matikan mesin — jangan pernah mengirim ON lagi.
+        if (!statePrefs.getBoolean("${channel}_play", false)) {
+            stopJitter(channel)
+            return
+        }
         val cfg = cfgFor(channel)
+        // ... sisanya tetap
         val dot = dotFor(channel) ?: return
         val center = centerFor(channel) ?: return
 
