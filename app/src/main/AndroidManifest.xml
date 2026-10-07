@@ -22,14 +22,16 @@
         <meta-data android:name="xposeddescription" android:value="@string/xposed_description" />
         <meta-data android:name="xposedminversion" android:value="53" />
         <meta-data android:name="xposedscope" android:resource="@array/xposed_scope" />
-
-        <!-- ===== FIX: izinkan LSPosed membuka akses baca prefs modul ===== -->
         <meta-data android:name="xposedsharedprefs" android:value="true" />
 
-        <!-- Jembatan state (fallback; tak apa tetap ada) -->
         <provider
             android:name=".StateProvider"
             android:authorities="com.narik.terus.state"
+            android:exported="true" />
+
+        <!-- WAJIB: penerima query state dari proses target -->
+        <receiver
+            android:name=".StateQueryReceiver"
             android:exported="true" />
 
         <activity
