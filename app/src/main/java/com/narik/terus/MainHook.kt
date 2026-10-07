@@ -24,35 +24,35 @@ import java.util.concurrent.atomic.AtomicLong
 class MainHook : IXposedHookLoadPackage {
 
     companion object {
-        const val ACTION_STATE = "com.narik.terus.ACTION_STATE"
-        const val ACTION_QUERY = "com.narik.terus.ACTION_QUERY"
+        const val HookContract.ACTION_STATE = "com.narik.terus.ACTION_STATE"
+        const val HookContract.ACTION_QUERY = "com.narik.terus.ACTION_QUERY"
 
-        const val KEY_CHANNEL = "channel"
-        const val KEY_PACKAGE = "package"
-        const val KEY_PLAY = "play"
-        const val KEY_LAT = "lat"
-        const val KEY_LNG = "lng"
-        const val KEY_METHODS = "methods"
+        const val HookContract.KEY_CHANNEL = "channel"
+        const val HookContract.KEY_PACKAGE = "package"
+        const val HookContract.KEY_PLAY = "play"
+        const val HookContract.KEY_LAT = "lat"
+        const val HookContract.KEY_LNG = "lng"
+        const val HookContract.KEY_METHODS = "methods"
 
         const val MODULE_PKG = "com.narik.terus"
         const val DEFAULT_TARGET_GRB = "com.pierwiastek.gpsdata"
         const val DEFAULT_TARGET_GJK = "com.khalnadj.khaledhabbachi.gps"
 
         // Flag metode (bitmask) — selaras MainActivity & StateQueryReceiver
-        const val FLAG_SPEED = 1L shl 0
-        const val FLAG_BEARING = 1L shl 1
-        const val FLAG_ACCURACY = 1L shl 2
-        const val FLAG_ALTITUDE = 1L shl 3
-        const val FLAG_MOCK = 1L shl 4
-        const val FLAG_GNSS = 1L shl 5
+        const val HookContract.FLAG_SPEED = 1L shl 0
+        const val HookContract.FLAG_BEARING = 1L shl 1
+        const val HookContract.FLAG_ACCURACY = 1L shl 2
+        const val HookContract.FLAG_ALTITUDE = 1L shl 3
+        const val HookContract.FLAG_MOCK = 1L shl 4
+        const val HookContract.FLAG_GNSS = 1L shl 5
 
         val METHOD_DEFS: List<Pair<Long, String>> = listOf(
-            FLAG_SPEED to "Kecepatan (getSpeed → 0)",
-            FLAG_BEARING to "Arah (getBearing → 0°)",
-            FLAG_ACCURACY to "Akurasi (getAccuracy → 10 m)",
-            FLAG_ALTITUDE to "Altitude (getAltitude → 35 m)",
-            FLAG_MOCK to "Samarkan mock (isMock → false)",
-            FLAG_GNSS to "Satelit GNSS (GnssStatus palsu)"
+            HookContract.FLAG_SPEED to "Kecepatan (getSpeed → 0)",
+            HookContract.FLAG_BEARING to "Arah (getBearing → 0°)",
+            HookContract.FLAG_ACCURACY to "Akurasi (getAccuracy → 10 m)",
+            HookContract.FLAG_ALTITUDE to "Altitude (getAltitude → 35 m)",
+            HookContract.FLAG_MOCK to "Samarkan mock (isMock → false)",
+            HookContract.FLAG_GNSS to "Satelit GNSS (GnssStatus palsu)"
         )
 
         private const val SERVE_LOG_INTERVAL_MS = 10_000L
