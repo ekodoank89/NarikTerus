@@ -5,9 +5,9 @@ import android.content.Context
 import android.content.Intent
 
 /**
- * Menerima broadcast dari MainHook di proses target saat trigger payload
- * terpicu (order masuk): mematikan channel terkait.
- * Jalur broadcast = SELinux-safe (terbukti berjalan).
+ * Auto-stop terpicu dari hook (order masuk): tandai prefs play=false +
+ * stop_request. Jika UI hidup, onResume akan membersihkan marker; jika
+ * tidak, restore berikutnya membaca play=false -> marker tidak dibuat.
  */
 class TriggerReceiver : BroadcastReceiver() {
 
@@ -16,7 +16,10 @@ class TriggerReceiver : BroadcastReceiver() {
         val channel = intent.getStringExtra(HookContract.KEY_CHANNEL) ?: return
         if (!intent.getBooleanExtra(HookContract.KEY_MATCHED, false)) return
 
-        // stopChannel() aman dipanggil dari background thread receiver.
-        MainActivity.requestStopChannel(context, channel)
+        context.getSharedPreferences("narik_state", Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean("${channel}_play", false)
+            .putString("${channel}_stop_request", "1")
+            .apply()
     }
 }
