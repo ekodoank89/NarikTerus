@@ -14,4 +14,12 @@
     <string name="menu_chip_gjk">Chip koordinat GJK: %1$s</string>
     <string name="btn_grb">Play/stop marker GRB</string>
     <string name="btn_gjk">Play/stop marker GJK</string>
+    <string name="tab_chip">CHIP</string>
+    <string name="tab_set">SET</string>
+    <string name="row_target_grb">Target GRB</string>
+    <string name="row_method_grb">Metode hook GRB</string>
+    <string name="row_target_gjk">Target GJK</string>
+    <string name="row_method_gjk">Metode hook GJK</string>
+    <string name="value_methods_core">Inti saja (lat/lng)</string>
+    <string name="toast_target_saved">Target disimpan. Centang paket ini di LSPosed → Scope, lalu force-stop aplikasinya.</string>
 </resources>
