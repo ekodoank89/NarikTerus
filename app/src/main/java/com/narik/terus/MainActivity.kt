@@ -600,7 +600,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
             slStep.value = cfg.stepMeters.coerceIn(0.1f, 3f)
             slMax.value = cfg.maxDistMeters.coerceIn(0.1f, 3f)
-            slInt.value = cfg.intervalSec.coerceIn(1f, 5f)
+            slInt.value = cfg.intervalSec.toFloat().coerceIn(1f, 5f)
             refreshLabels()
 
             toggle.setOnClickListener {
