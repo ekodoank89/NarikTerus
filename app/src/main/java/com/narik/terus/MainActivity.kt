@@ -7,16 +7,24 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
+import android.graphics.Typeface
 import android.location.Location
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
 import android.provider.Settings
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.View
+import android.widget.ArrayAdapter
+import android.widget.EditText
 import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.ListView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -49,31 +57,12 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         private const val DEFAULT_ZOOM = 17f
         private const val REQ_PERMS = 1
         private const val REQ_BACKGROUND = 2
-
-        /** Durasi animasi gabungan kompas + terbang ke titik biru (ms). */
         private const val FLY_ANIM_MS = 400
-
-        /** Konfigurasi menu rahasia ala Developer Options. */
         private const val SECRET_TAPS_REQUIRED = 7
         private const val SECRET_TAP_TIMEOUT_MS = 2_000L
-
-        /** Tinggi marker GRB/GJK = tinggi tampilan pin (56dp). */
         private const val MARKER_SIZE_DP = 56f
-
-        /** Celah transparan di bawah marker agar titik biru tidak tertutup. */
         private const val MARKER_BOTTOM_GAP_DP = 8f
-
-        /** Nama file prefs yang dibaca hook/provoder. */
         private const val PREFS_NAME = "narik_state"
-
-        /** Broadcast IPC ke hook di proses target (harus sama dgn MainHook). */
-        private const val ACTION_STATE = "com.narik.terus.ACTION_STATE"
-
-        /** Target default per channel (bisa ditimpa via prefs <channel>_target). */
-        private val DEFAULT_TARGETS = mapOf(
-            "grb" to "com.pierwiastek.gpsdata",
-            "gjk" to "com.khalnadj.khaledhabbachi.gps"
-        )
     }
 
     private lateinit var fusedLocationClient: FusedLocationProviderClient
@@ -94,31 +83,41 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private lateinit var menuRowChipGrb: TextView
     private lateinit var menuRowChipGjk: TextView
     private lateinit var btnCloseMenu: ImageView
+    private lateinit var tabChip: TextView
+    private lateinit var tabSet: TextView
+    private lateinit var pageChip: View
+    private lateinit var pageSet: View
+    private lateinit val rowTargetGrb: View
+    private lateinit var rowMethodGrb: View
+    private lateinit var rowTargetGjk: View
+    private lateinit var rowMethodGjk: View
+    private lateinit var valTargetGrb: TextView
+    private lateinit var valMethodGrb: TextView
+    private lateinit var valTargetGjk: TextView
+    private lateinit var valMethodGjk: TextView
 
     private var map: GoogleMap? = null
     private var followMode = false
     private var firstFixApplied = false
     private var askedBackgroundSettings = false
     private var locationCallback: LocationCallback? = null
-
-    /** true = chip sudah boleh menampilkan koordinat (ada fix lokasi ATAU user pernah menggeser map). */
     private var chipActive = false
-
-    /** Penghitung tap rahasia. */
     private var secretTapCount = 0
     private var lastSecretTapAt = 0L
 
-    /** Marker layanan + status play. */
     private var grbMarker: Marker? = null
     private var gjkMarker: Marker? = null
     private var grbPlaying = false
     private var gjkPlaying = false
-
-    /** Toggle chip koordinat GRB/GJK dari menu rahasia (default aktif). */
     private var showGrbChip = true
     private var showGjkChip = true
 
-    /** Prefs state yang dibaca hook/provoder. */
+    // Konfigurasi fleksibel per channel
+    private var grbTarget = MainHook.DEFAULT_TARGET_GRB
+    private var gjkTarget = MainHook.DEFAULT_TARGET_GJK
+    private var grbMethods = 0L
+    private var gjkMethods = 0L
+
     private val statePrefs by lazy { getSharedPreferences(PREFS_NAME, MODE_PRIVATE) }
 
     // ------------------------------------------------------------ onCreate
@@ -126,7 +125,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Peta tampil penuh sampai tepi layar
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_main)
 
@@ -149,50 +147,69 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         menuRowChipGrb = findViewById(R.id.menu_row_chip_grb)
         menuRowChipGjk = findViewById(R.id.menu_row_chip_gjk)
         btnCloseMenu = findViewById(R.id.btn_close_menu)
+        tabChip = findViewById(R.id.tab_chip)
+        tabSet = findViewById(R.id.tab_set)
+        pageChip = findViewById(R.id.page_chip)
+        pageSet = findViewById(R.id.page_set)
+        rowTargetGrb = findViewById(R.id.row_target_grb)
+        rowMethodGrb = findViewById(R.id.row_method_grb)
+        rowTargetGjk = findViewById(R.id.row_target_gjk)
+        rowMethodGjk = findViewById(R.id.row_method_gjk)
+        valTargetGrb = findViewById(R.id.val_target_grb)
+        valMethodGrb = findViewById(R.id.val_method_grb)
+        valTargetGjk = findViewById(R.id.val_target_gjk)
+        valMethodGjk = findViewById(R.id.val_method_gjk)
         keepOverlaysClearOfSystemBars()
 
-        // Kanan bawah : (rahasia) -> autofocus -> zoom in -> zoom out
+        // Muat konfigurasi tersimpan
+        grbTarget = statePrefs.getString("grb_target", grbTarget) ?: grbTarget
+        gjkTarget = statePrefs.getString("gjk_target", gjkTarget) ?: gjkTarget
+        grbMethods = statePrefs.getLong("grb_methods", 0L)
+        gjkMethods = statePrefs.getLong("gjk_methods", 0L)
+
+        // Kanan bawah
         findViewById<View>(R.id.btn_autofocus).setOnClickListener { onAutofocusTapped() }
         findViewById<View>(R.id.btn_zoom_in).setOnClickListener { zoomToMax() }
         findViewById<View>(R.id.btn_zoom_out).setOnClickListener { zoomOut() }
 
-        // Kiri bawah : play/stop marker GRB & GJK
+        // Kiri bawah
         btnGrb.setOnClickListener { toggleGrb() }
         btnGjk.setOnClickListener { toggleGjk() }
         updateServiceButtonUi(btnGrb, badgeGrb, false)
         updateServiceButtonUi(btnGjk, badgeGjk, false)
 
-        // Pin = pemicu rahasia 7x tap (senyap, tanpa info apa pun)
         imgCenterPin.setOnClickListener { onPinTapped() }
-
-        // Chip pin: tap = sembunyikan (munculkan lagi lewat menu rahasia)
         chipCoords.setOnClickListener { toggleCoordsChip() }
-
-        // Icon NT = buka/tutup panel menu rahasia
         btnSecret.setOnClickListener { toggleMenuPanel() }
 
-        // Baris-baris menu rahasia (hanya 3 toggle chip)
+        // Tab menu rahasia
+        tabChip.setOnClickListener { switchTab(set = false) }
+        tabSet.setOnClickListener { switchTab(set = true) }
+        switchTab(set = false)
+
+        // Halaman CHIP
         menuRowChipPin.setOnClickListener {
-            toggleCoordsChip()
-            refreshMenuLabels()
+            toggleCoordsChip(); refreshMenuLabels()
         }
         menuRowChipGrb.setOnClickListener {
-            showGrbChip = !showGrbChip
-            refreshGrbChip()
-            refreshMenuLabels()
+            showGrbChip = !showGrbChip; refreshGrbChip(); refreshMenuLabels()
         }
         menuRowChipGjk.setOnClickListener {
-            showGjkChip = !showGjkChip
-            refreshGjkChip()
-            refreshMenuLabels()
+            showGjkChip = !showGjkChip; refreshGjkChip(); refreshMenuLabels()
         }
 
-        // X : tutup menu + sembunyikan icon rahasia (kembali seperti semula)
+        // Halaman SET
+        rowTargetGrb.setOnClickListener { showAppPicker("grb") }
+        rowMethodGrb.setOnClickListener { showMethodPicker("grb") }
+        rowTargetGjk.setOnClickListener { showAppPicker("gjk") }
+        rowMethodGjk.setOnClickListener { showMethodPicker("gjk") }
+
         btnCloseMenu.setOnClickListener {
             menuPanel.isVisible = false
             btnSecret.isVisible = false
         }
         refreshMenuLabels()
+        refreshSetLabels()
 
         (supportFragmentManager.findFragmentById(R.id.map) as SupportMapFragment)
             .getMapAsync(this)
@@ -210,7 +227,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     override fun onMapReady(googleMap: GoogleMap) {
         map = googleMap
 
-        // Hapus SEMUA tombol bawaan Google Maps
         googleMap.uiSettings.apply {
             isZoomControlsEnabled = false
             isCompassEnabled = false
@@ -222,17 +238,12 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             isTiltGesturesEnabled = true
         }
 
-        // Ikon kompas + chip koordinat pin update AGRESIF di setiap frame gerakan
         updateCompass(googleMap.cameraPosition.bearing)
         googleMap.setOnCameraMoveListener {
             updateCompass(googleMap.cameraPosition.bearing)
             updateCoordsChip()
         }
-
-        // Jaminan nilai akhir tepat setelah kamera berhenti
         googleMap.setOnCameraIdleListener { updateCoordsChip() }
-
-        // Geser/putar map manual = matikan mode ikuti + aktifkan chip pin
         googleMap.setOnCameraMoveStartedListener { reason ->
             if (reason == GoogleMap.OnCameraMoveStartedListener.REASON_GESTURE) {
                 followMode = false
@@ -250,32 +261,24 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     // ------------------------------------------------------- chip koordinat
 
-    /** Format koordinat standar: 6 desimal, Locale.US. */
     private fun formatLatLng(pos: LatLng): String =
         String.format(Locale.US, "%.6f, %.6f", pos.latitude, pos.longitude)
 
-    /** Sembunyikan/tampilkan chip koordinat pin (dari tap chip / menu rahasia). */
     private fun toggleCoordsChip() {
         chipCoords.isVisible = !chipCoords.isVisible
     }
 
-    /**
-     * Isi chip pin dengan koordinat pusat kamera = posisi ujung pin.
-     * Dipanggil tiap frame kamera bergerak; guard != mencegah re-render sia-sia.
-     */
     private fun updateCoordsChip() {
-        if (!chipActive) return // masih tampil "Menunggu lokasi…"
+        if (!chipActive) return
         val target = map?.cameraPosition?.target ?: return
         val text = formatLatLng(target)
         if (chipCoords.text != text) chipCoords.text = text
     }
 
-    /** Chip GRB tampil hanya jika toggle AKTIF dan markernya ada. */
     private fun refreshGrbChip() {
         chipGrb.isVisible = showGrbChip && grbMarker != null
     }
 
-    /** Chip GJK tampil hanya jika toggle AKTIF dan markernya ada. */
     private fun refreshGjkChip() {
         chipGjk.isVisible = showGjkChip && gjkMarker != null
     }
@@ -290,10 +293,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     // -------------------------------------------------- menu rahasia (7x tap)
 
-    /**
-     * Hitung tap pin secara SENYAP. 7x tap berturut-turut (jeda < 2 dtk)
-     * menampilkan/menyembunyikan icon menu rahasia. Tanpa dialog/toast.
-     */
     private fun onPinTapped() {
         val now = SystemClock.elapsedRealtime()
         if (now - lastSecretTapAt > SECRET_TAP_TIMEOUT_MS) secretTapCount = 0
@@ -301,7 +300,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         if (++secretTapCount >= SECRET_TAPS_REQUIRED) {
             secretTapCount = 0
             btnSecret.isVisible = !btnSecret.isVisible
-            if (!btnSecret.isVisible) menuPanel.isVisible = false // tutup juga menunya
+            if (!btnSecret.isVisible) menuPanel.isVisible = false
         }
     }
 
@@ -309,7 +308,22 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         menuPanel.isVisible = !menuPanel.isVisible
     }
 
-    /** Sinkronkan label state di menu rahasia. */
+    private fun switchTab(set: Boolean) {
+        pageChip.isVisible = !set
+        pageSet.isVisible = set
+        styleTab(tabChip, selected = !set)
+        styleTab(tabSet, selected = set)
+    }
+
+    private fun styleTab(tab: TextView, selected: Boolean) {
+        tab.setTextColor(
+            ContextCompat.getColor(
+                this, if (selected) R.color.tab_selected else R.color.tab_unselected
+            )
+        )
+        tab.setTypeface(null, if (selected) Typeface.BOLD else Typeface.NORMAL)
+    }
+
     private fun refreshMenuLabels() {
         menuRowChipPin.text = getString(
             R.string.menu_chip_pin, if (chipCoords.isVisible) "AKTIF" else "MATI"
@@ -322,33 +336,150 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         )
     }
 
+    // ------------------------------------------------- SET: target & metode
+
+    private fun currentTarget(channel: String): String =
+        if (channel == "grb") grbTarget else gjkTarget
+
+    private fun methodsFor(channel: String): Long =
+        if (channel == "grb") grbMethods else gjkMethods
+
+    private fun playingFor(channel: String): Boolean =
+        if (channel == "grb") grbPlaying else gjkPlaying
+
+    private fun markerFor(channel: String): Marker? =
+        if (channel == "grb") grbMarker else gjkMarker
+
+    private fun refreshSetLabels() {
+        valTargetGrb.text = grbTarget
+        valMethodGrb.text = methodsLabel(grbMethods)
+        valTargetGjk.text = gjkTarget
+        valMethodGjk.text = methodsLabel(gjkMethods)
+    }
+
+    private fun methodsLabel(mask: Long): String {
+        val active = MainHook.METHOD_DEFS
+            .filter { (mask and it.first) != 0L }
+            .map { it.second.substringBefore(" (") }
+        return if (active.isEmpty()) getString(R.string.value_methods_core)
+        else active.joinToString(", ")
+    }
+
+    /** Picker aplikasi terinstall (dengan pencarian). */
+    private fun showAppPicker(channel: String) {
+        val pm = packageManager
+        val launchIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        val allItems = pm.queryIntentActivities(launchIntent, 0)
+            .asSequence()
+            .mapNotNull { ri ->
+                val pkg = ri.activityInfo.packageName
+                if (pkg == packageName) null
+                else "${ri.loadLabel(pm)}\n$pkg"
+            }
+            .sortedBy { it.lowercase() }
+            .toList()
+
+        val density = resources.displayMetrics.density
+        fun dp(v: Int) = (v * density).toInt()
+
+        val input = EditText(this).apply {
+            hint = "Cari aplikasi…"
+            setSingleLine()
+        }
+        val list = ListView(this).apply { divider = null }
+        val adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, ArrayList(allItems))
+        list.adapter = adapter
+
+        input.addTextChangedListener(object : TextWatcher {
+            override fun afterTextChanged(s: Editable?) {
+                val q = s?.toString()?.lowercase().orEmpty()
+                adapter.clear()
+                adapter.addAll(allItems.filter { it.lowercase().contains(q) })
+            }
+            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+        })
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(8), dp(16), dp(8))
+            addView(input)
+            addView(list)
+        }
+
+        val dlg = AlertDialog.Builder(this)
+            .setTitle("Target ${channel.uppercase()}")
+            .setView(container)
+            .setNegativeButton("Batal", null)
+            .create()
+        list.setOnItemClickListener { _, _, pos, _ ->
+            val text = adapter.getItem(pos) ?: return@setOnItemClickListener
+            dlg.dismiss()
+            applyTarget(channel, text.substringAfterLast('\n'))
+        }
+        dlg.show()
+    }
+
+    private fun applyTarget(channel: String, pkg: String) {
+        val old = currentTarget(channel)
+        statePrefs.edit().putString("${channel}_target", pkg).apply()
+        if (channel == "grb") grbTarget = pkg else gjkTarget = pkg
+
+        if (old != pkg) {
+            // Matikan spoof di target lama (receiver lamanya akan menerima OFF)
+            sendStateTo(old, channel, false, null, methodsFor(channel))
+            // Sinkronkan target baru bila prosesnya sudah berjalan
+            sendStateTo(pkg, channel, playingFor(channel), markerFor(channel)?.position, methodsFor(channel))
+            Toast.makeText(this, R.string.toast_target_saved, Toast.LENGTH_LONG).show()
+        }
+        refreshSetLabels()
+    }
+
+    /** Picker metode hook (multi-pilih). */
+    private fun showMethodPicker(channel: String) {
+        var sel = methodsFor(channel)
+        val names = MainHook.METHOD_DEFS.map { it.second }.toTypedArray()
+        val checked = MainHook.METHOD_DEFS.map { (sel and it.first) != 0L }.toBooleanArray()
+
+        AlertDialog.Builder(this)
+            .setTitle("Metode hook ${channel.uppercase()}")
+            .setMultiChoiceItems(names, checked) { _, which, isChecked ->
+                val flag = MainHook.METHOD_DEFS[which].first
+                sel = if (isChecked) sel or flag else sel and flag.inv()
+            }
+            .setPositiveButton("Simpan") { _, _ -> applyMethods(channel, sel) }
+            .setNegativeButton("Batal", null)
+            .show()
+    }
+
+    private fun applyMethods(channel: String, mask: Long) {
+        statePrefs.edit().putLong("${channel}_methods", mask).apply()
+        if (channel == "grb") grbMethods = mask else gjkMethods = mask
+        // Apply live ke target (tanpa restart)
+        sendStateTo(currentTarget(channel), channel, playingFor(channel), markerFor(channel)?.position, mask)
+        refreshSetLabels()
+    }
+
     // --------------------------------------------------- marker GRB / GJK
 
-    /**
-     * Play  : patok marker GRB pada KOORDINAT PIN SAAT INI (pusat kamera)
-     *         + tulis prefs + PUSH broadcast ke proses target.
-     * Stop  : hapus marker + matikan spoofing.
-     */
     private fun toggleGrb() {
         val googleMap = map ?: return
         grbPlaying = !grbPlaying
         if (grbPlaying) {
-            val pos = googleMap.cameraPosition.target // koordinat pin saat play
+            val pos = googleMap.cameraPosition.target
             grbMarker = addServiceMarker(R.drawable.ic_marker_grb, pos)
             updateGrbChipText()
             persistServiceState("grb", true, pos)
-            pushStateToTargets("grb", true, pos)
         } else {
             grbMarker?.remove()
             grbMarker = null
             persistServiceState("grb", false, null)
-            pushStateToTargets("grb", false, null)
         }
+        sendStateTo(currentTarget("grb"), "grb", grbPlaying, grbMarker?.position, grbMethods)
         refreshGrbChip()
         updateServiceButtonUi(btnGrb, badgeGrb, grbPlaying)
     }
 
-    /** Sama seperti GRB, untuk proses com.khalnadj.khaledhabbachi.gps. */
     private fun toggleGjk() {
         val googleMap = map ?: return
         gjkPlaying = !gjkPlaying
@@ -357,31 +488,25 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             gjkMarker = addServiceMarker(R.drawable.ic_marker_gjk, pos)
             updateGjkChipText()
             persistServiceState("gjk", true, pos)
-            pushStateToTargets("gjk", true, pos)
         } else {
             gjkMarker?.remove()
             gjkMarker = null
             persistServiceState("gjk", false, null)
-            pushStateToTargets("gjk", false, null)
         }
+        sendStateTo(currentTarget("gjk"), "gjk", gjkPlaying, gjkMarker?.position, gjkMethods)
         refreshGjkChip()
         updateServiceButtonUi(btnGjk, badgeGjk, gjkPlaying)
     }
 
-    /** Buat marker layanan: ukuran = pin, anchor bawah-tengah, gap di bawah. */
     private fun addServiceMarker(drawableRes: Int, pos: LatLng): Marker? =
         map?.addMarker(
             MarkerOptions()
                 .position(pos)
                 .icon(markerIconAtPinSize(drawableRes))
-                .anchor(0.5f, 1f) // anchor bawah tengah
+                .anchor(0.5f, 1f)
                 .zIndex(3f)
         )
 
-    /**
-     * Pulihkan state play saat aplikasi dibuka ulang, lalu PUSH ulang
-     * state ke target (menyinkronkan proses target yang masih hidup).
-     */
     private fun restoreServiceStates() {
         val googleMap = map ?: return
 
@@ -395,7 +520,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             updateGrbChipText()
             refreshGrbChip()
             updateServiceButtonUi(btnGrb, badgeGrb, true)
-            pushStateToTargets("grb", true, grbMarker?.position)
+            sendStateTo(grbTarget, "grb", true, grbMarker?.position, grbMethods)
         }
 
         if (statePrefs.getBoolean("gjk_play", false)) {
@@ -408,15 +533,12 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             updateGjkChipText()
             refreshGjkChip()
             updateServiceButtonUi(btnGjk, badgeGjk, true)
-            pushStateToTargets("gjk", true, gjkMarker?.position)
+            sendStateTo(gjkTarget, "gjk", true, gjkMarker?.position, gjkMethods)
         }
     }
 
-    // ---------------------------------- prefs + broadcast untuk hook target
+    // --------------------------------------------- prefs + broadcast target
 
-    /**
-     * Tulis state play/stop + koordinat marker ke prefs (untuk query/pull).
-     */
     private fun persistServiceState(key: String, playing: Boolean, pos: LatLng?) {
         val editor = statePrefs.edit()
             .putBoolean("${key}_play", playing)
@@ -428,9 +550,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         makeStatePrefsWorldReadable()
     }
 
-    /**
-     * Buka akses baca file prefs (jalur lama; tetap dipertahankan tanpa ruginya).
-     */
     private fun makeStatePrefsWorldReadable() {
         try {
             val dataDir = filesDir.parentFile ?: return
@@ -442,49 +561,45 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         }
     }
 
-    /**
-     * PUSH state ke proses target via broadcast (SELinux-safe, tanpa
-     * syarat permission/visibility). Receiver dinamis di target yang
-     * mengambilnya dan menyimpan ke memori prosesnya.
-     */
-    private fun pushStateToTargets(channel: String, playing: Boolean, pos: LatLng?) {
-        val target = statePrefs.getString("${channel}_target", null)
-            ?: DEFAULT_TARGETS[channel] ?: return
+    /** PUSH state (play + koordinat + metode) ke satu paket target. */
+    private fun sendStateTo(
+        targetPkg: String?,
+        channel: String,
+        playing: Boolean,
+        pos: LatLng?,
+        methods: Long
+    ) {
+        if (targetPkg.isNullOrEmpty()) return
         runCatching {
             sendBroadcast(
-                Intent(ACTION_STATE).setPackage(target)
-                    .putExtra("channel", channel)
-                    .putExtra("play", playing)
-                    .putExtra("lat", pos?.latitude ?: 0.0)
-                    .putExtra("lng", pos?.longitude ?: 0.0)
+                Intent(MainHook.ACTION_STATE).setPackage(targetPkg)
+                    .putExtra(MainHook.KEY_CHANNEL, channel)
+                    .putExtra(MainHook.KEY_PLAY, playing)
+                    .putExtra(MainHook.KEY_LAT, pos?.latitude ?: 0.0)
+                    .putExtra(MainHook.KEY_LNG, pos?.longitude ?: 0.0)
+                    .putExtra(MainHook.KEY_METHODS, methods)
             )
         }
     }
 
     // ------------------------------------------------- scaling icon marker
 
-    /**
-     * Skalakan PNG marker agar tingginya = MARKER_SIZE_DP (56dp, sama dengan pin),
-     * lalu tambahkan celah transparan MARKER_BOTTOM_GAP_DP di bawahnya.
-     */
     private fun markerIconAtPinSize(drawableRes: Int): BitmapDescriptor {
         val density = resources.displayMetrics.density
         val targetHeightPx = (MARKER_SIZE_DP * density).toInt().coerceAtLeast(1)
 
-        // Baca dimensi asli tanpa meng decode penuh
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeResource(resources, drawableRes, bounds)
         val srcW = bounds.outWidth
         val srcH = bounds.outHeight
         if (srcW <= 0 || srcH <= 0) {
-            return BitmapDescriptorFactory.fromResource(drawableRes) // fallback aman
+            return BitmapDescriptorFactory.fromResource(drawableRes)
         }
 
         val src = BitmapFactory.decodeResource(resources, drawableRes, null)
         val targetWidthPx = (targetHeightPx * (srcW.toFloat() / srcH)).toInt().coerceAtLeast(1)
         val scaled = Bitmap.createScaledBitmap(src, targetWidthPx, targetHeightPx, true)
 
-        // Bitmap baru lebih tinggi (asli + gap); area baru otomatis transparan
         val gapPx = (MARKER_BOTTOM_GAP_DP * density).toInt()
         val padded = Bitmap.createBitmap(
             scaled.width, scaled.height + gapPx, Bitmap.Config.ARGB_8888
@@ -494,7 +609,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         return BitmapDescriptorFactory.fromBitmap(padded)
     }
 
-    /** Wujud tombol sesuai state: hijau + ⏹ saat jalan, putih + ▶ saat mati. */
+    /** Wujud tombol sesuai state. */
     private fun updateServiceButtonUi(button: View, badge: ImageView, playing: Boolean) {
         button.setBackgroundResource(
             if (playing) R.drawable.bg_fab_active else R.drawable.bg_fab_circle
@@ -505,11 +620,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     // ------------------------------------------------------------- tombol
 
-    /**
-     * Tap autofocus : DUA fungsi sekaligus dalam SATU animasi.
-     * 1. KOMPAS    — map diputar kembali ke utara 0°
-     * 2. AUTOFOCUS — kamera terbang ke titik biru, mendarat di zoom 17
-     */
     @SuppressLint("MissingPermission")
     private fun onAutofocusTapped() {
         val googleMap = map ?: return
@@ -531,7 +641,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         }
     }
 
-    /** Satu animasi gabungan: target = titik biru, bearing = 0° utara, selalu mendarat di zoom 17. */
     private fun flyNorthTo(location: Location) {
         val googleMap = map ?: return
         googleMap.animateCamera(
@@ -547,7 +656,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         )
     }
 
-    /** Putar kamera ke bearing tertentu tanpa mengubah posisi/zoom. */
     private fun animateBearing(bearing: Float) {
         val googleMap = map ?: return
         googleMap.animateCamera(
@@ -561,19 +669,16 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         )
     }
 
-    /** Zoom in : langsung lompat ke zoom MAKSIMAL. */
     private fun zoomToMax() {
         val googleMap = map ?: return
         googleMap.animateCamera(CameraUpdateFactory.zoomTo(googleMap.maxZoomLevel))
     }
 
-    /** Zoom out : default, mundur satu tingkat zoom. */
     private fun zoomOut() {
         val googleMap = map ?: return
         googleMap.animateCamera(CameraUpdateFactory.zoomOut())
     }
 
-    /** Gerakkan kamera ke lokasi (dipakai saat mode ikuti aktif). */
     private fun moveTo(location: Location) {
         val googleMap = map ?: return
         val target = LatLng(location.latitude, location.longitude)
@@ -593,7 +698,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     @SuppressLint("MissingPermission")
     private fun enableMyLocation() {
         val googleMap = map ?: return
-        googleMap.isMyLocationEnabled = true // titik biru
+        googleMap.isMyLocationEnabled = true
 
         fusedLocationClient.lastLocation.addOnSuccessListener { loc ->
             if (loc != null && !firstFixApplied) {
@@ -620,7 +725,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         locationCallback = object : LocationCallback() {
             override fun onLocationResult(result: LocationResult) {
                 result.lastLocation?.let { loc ->
-                    if (followMode) moveTo(loc) // kamera terus mengikuti titik biru
+                    if (followMode) moveTo(loc)
                 }
             }
         }
@@ -639,7 +744,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         return fine || coarse
     }
 
-    /** Izin lokasi + izin notifikasi (Android 13+). */
     private fun requestMainPermissions() {
         val perms = mutableListOf(
             Manifest.permission.ACCESS_FINE_LOCATION,
@@ -651,7 +755,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         ActivityCompat.requestPermissions(this, perms.toTypedArray(), REQ_PERMS)
     }
 
-    /** Izin "Selalu izinkan" (lokasi latar belakang). */
     private fun requestBackgroundPermissionIfNeeded() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
         val granted = ContextCompat.checkSelfPermission(
@@ -700,7 +803,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     // ---------------------------------------------------------------- insets
 
-    /** Angkat chip & tombol di atas navigation bar (mode edge-to-edge). */
     private fun keepOverlaysClearOfSystemBars() {
         val root = findViewById<View>(android.R.id.content)
         ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
