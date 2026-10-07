@@ -1,7 +1,9 @@
 package com.narik.terus
 
+import android.app.AndroidAppHelper
+import android.net.Uri
 import de.robv.android.xposed.IXposedHookLoadPackage
-import de.robv.android.xposed.XC_MethodHook          // ← TAMBAHKAN BARIS INI
+import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XSharedPreferences
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
@@ -11,97 +13,151 @@ import java.util.concurrent.atomic.AtomicLong
 /**
  * Titik masuk modul LSPosed.
  *
- * Alur:
- * 1. MainActivity menulis state play/stop + koordinat marker ke
- *    SharedPreferences "narik_state" (grb_play, grb_lat, grb_lng, dst).
- * 2. Hook ini di-inject ke proses aplikasi target, membaca state tsb
- *    via XSharedPreferences (dibantu SELinux patch LSPosed + chmod dari UI).
- * 3. Saat play aktif, Location.getLatitude/getLongitude di proses target
- *    mengembalikan koordinat marker -> aplikasi target membaca lokasi fake.
- *
- * Play BERTAHAN walau UI NarikTerus ditutup (tersimpan di prefs),
- * sampai tombol stop ditekan.
+ * Sumber state (urutan):
+ * 1. ContentProvider modul (Binder antar-aplikasi, tahan SELinux) — UTAMA
+ * 2. XSharedPreferences (dibantu daemon LSPosed) — CADANGAN
  */
 class MainHook : IXposedHookLoadPackage {
 
     companion object {
-        private const val MODULE_PKG = "com.narik.terus"
-        private const val PREFS_NAME = "narik_state"
-
-        // Paket target -> channel prefs
         private const val PKG_GRB = "com.pierwiastek.gpsdata"
         private const val PKG_GJK = "com.khalnadj.khaledhabbachi.gps"
 
-        /** Throttle reload prefs agar tidak membaca file di tiap pemanggilan. */
-        private const val RELOAD_INTERVAL_MS = 500L
+        // Harus sama dengan StateProvider (const -> inline, aman di proses target)
+        private const val STATE_AUTHORITY = "com.narik.terus.state"
+        private const val METHOD_GET = "get"
+        private const val KEY_PLAY = "play"
+        private const val KEY_LAT = "lat"
+        private const val KEY_LNG = "lng"
+
+        private const val REFRESH_INTERVAL_MS = 500L
+        private const val LOG_INTERVAL_MS = 10_000L
     }
+
+    private data class State(
+        val playing: Boolean,
+        val lat: Double,
+        val lng: Double,
+        val source: String
+    )
 
     private var channel: String? = null
     private var prefs: XSharedPreferences? = null
-    private val lastReload = AtomicLong(0L)
+
+    private val stateLock = Any()
+    private var lastRefreshAt = 0L
+    private val lastReloadPrefs = AtomicLong(0L)
+    private val lastServeLogAt = AtomicLong(0L)
+
+    @Volatile
+    private var cached = State(false, 0.0, 0.0, "-")
 
     override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
         channel = when (lpparam.packageName) {
             PKG_GRB -> "grb"
             PKG_GJK -> "gjk"
-            else -> return // proses lain diabaikan total
+            else -> return // proses lain diabaikan
         }
 
         prefs = try {
-            XSharedPreferences(MODULE_PKG, PREFS_NAME)
+            XSharedPreferences("com.narik.terus", "narik_state")
         } catch (t: Throwable) {
-            XposedBridge.log("[NarikTerus] XSharedPreferences gagal: $t")
+            XposedBridge.log("[NarikTerus] XSharedPreferences gagal dibuat: $t")
             null
         }
 
         hookLocationClass(lpparam.classLoader)
 
-        XposedBridge.log("[NarikTerus] Hook aktif: ${lpparam.packageName} -> channel=$channel")
+        val st = currentState(force = true)
+        XposedBridge.log(
+            "[NarikTerus] Hook aktif: ${lpparam.packageName} -> channel=$channel | " +
+                "state awal: play=${st.playing}, sumber=${st.source}"
+        )
     }
 
-    /** Reload prefs maksimal 1x per RELOAD_INTERVAL_MS (thread-safe). */
-    private fun reloadIfNeeded() {
-        val p = prefs ?: return
+    // ------------------------------------------------------------ state
+
+    /** Baca state (cache 500 ms) lewat provider, fallback prefs. */
+    private fun currentState(force: Boolean = false): State {
         val now = System.currentTimeMillis()
-        val last = lastReload.get()
-        if (now - last >= RELOAD_INTERVAL_MS && lastReload.compareAndSet(last, now)) {
-            try {
-                p.reload()
-            } catch (_: Throwable) {
+        synchronized(stateLock) {
+            if (force || now - lastRefreshAt >= REFRESH_INTERVAL_MS) {
+                lastRefreshAt = now
+                val st = readFromProvider() ?: readFromPrefs()
+                    ?: State(false, 0.0, 0.0, "none")
+                if (st.playing != cached.playing) {
+                    XposedBridge.log(
+                        "[NarikTerus] $channel: spoof " +
+                            if (st.playing) "ON -> ${st.lat}, ${st.lng} (sumber=${st.source})"
+                            else "OFF (sumber=${st.source})"
+                    )
+                }
+                cached = st
             }
+            return cached
         }
     }
 
-    private fun isPlaying(): Boolean {
-        val p = prefs ?: return false
-        reloadIfNeeded()
+    /** UTAMA: query provider modul via Binder. */
+    private fun readFromProvider(): State? {
+        val ch = channel ?: return null
         return try {
-            p.getBoolean("${channel}_play", false)
-        } catch (_: Throwable) {
-            false
+            val app = AndroidAppHelper.currentApplication() ?: return null
+            val bundle = app.contentResolver.call(
+                Uri.parse("content://$STATE_AUTHORITY/state/$ch"),
+                METHOD_GET, ch, null
+            ) ?: return null
+            val playing = bundle.getBoolean(KEY_PLAY, false)
+            if (!playing) return State(false, 0.0, 0.0, "provider")
+            val lat = bundle.getString(KEY_LAT)?.toDoubleOrNull() ?: return null
+            val lng = bundle.getString(KEY_LNG)?.toDoubleOrNull() ?: return null
+            State(true, lat, lng, "provider")
+        } catch (t: Throwable) {
+            null
         }
     }
 
-    private fun fakeLat(): Double =
-        prefs?.getString("${channel}_lat", null)?.toDoubleOrNull() ?: 0.0
+    /** CADANGAN: XSharedPreferences (dibantu daemon LSPosed). */
+    private fun readFromPrefs(): State? {
+        val p = prefs ?: return null
+        val ch = channel ?: return null
+        return try {
+            val now = System.currentTimeMillis()
+            val last = lastReloadPrefs.get()
+            if (now - last >= REFRESH_INTERVAL_MS && lastReloadPrefs.compareAndSet(last, now)) {
+                p.reload()
+            }
+            val playing = p.getBoolean("${ch}_play", false)
+            if (!playing) State(false, 0.0, 0.0, "prefs")
+            else State(
+                true,
+                p.getString("${ch}_lat", null)?.toDoubleOrNull() ?: 0.0,
+                p.getString("${ch}_lng", null)?.toDoubleOrNull() ?: 0.0,
+                "prefs"
+            )
+        } catch (t: Throwable) {
+            XposedBridge.log("[NarikTerus] readFromPrefs error: $t")
+            null
+        }
+    }
 
-    private fun fakeLng(): Double =
-        prefs?.getString("${channel}_lng", null)?.toDoubleOrNull() ?: 0.0
+    // ------------------------------------------------------------ hook
 
-    /**
-     * Hook utama: Location.getLatitude/getLongitude.
-     * Menutup hampir semua jalur pembacaan lokasi (LocationManager,
-     * FusedLocationProvider, LocationResult) karena semuanya memakai
-     * objek Location yang sama -> getLatitude/getLongitude-nya di-hook.
-     */
     private fun hookLocationClass(classLoader: ClassLoader) {
         val hook = object : XC_MethodHook() {
             override fun afterHookedMethod(param: MethodHookParam) {
-                if (!isPlaying()) return
-                param.result = when (param.method.name) {
-                    "getLatitude" -> fakeLat()
-                    else -> fakeLng()
+                val st = currentState()
+                if (!st.playing) return
+
+                val now = System.currentTimeMillis()
+                if (now - lastServeLogAt.get() >= LOG_INTERVAL_MS) {
+                    lastServeLogAt.set(now)
+                    XposedBridge.log(
+                        "[NarikTerus] $channel: melayani ${st.lat}, ${st.lng} (sumber=${st.source})"
+                    )
                 }
+                param.result =
+                    if (param.method.name == "getLatitude") st.lat else st.lng
             }
         }
         try {
