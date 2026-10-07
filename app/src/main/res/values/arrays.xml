@@ -1,7 +1,0 @@
-<resources>
-    <!-- Scope LSPosed: hanya proses aplikasi target yang di-hook. -->
-    <string-array name="xposed_scope">
-        <item>com.pierwiastek.gpsdata</item>
-        <item>com.khalnadj.khaledhabbachi.gps</item>
-    </string-array>
-</resources>
