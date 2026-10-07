@@ -1,6 +1,7 @@
 package com.narik.terus
 
 import de.robv.android.xposed.IXposedHookLoadPackage
+import de.robv.android.xposed.XC_MethodHook          // ← TAMBAHKAN BARIS INI
 import de.robv.android.xposed.XSharedPreferences
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
