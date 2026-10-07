@@ -18,20 +18,15 @@
             android:name="com.google.android.geo.API_KEY"
             android:value="${MAPS_API_KEY}" />
 
-        <!-- ======== Penanda agar terbaca sebagai modul LSPosed ======== -->
-        <meta-data
-            android:name="xposedmodule"
-            android:value="true" />
-        <meta-data
-            android:name="xposeddescription"
-            android:value="@string/xposed_description" />
-        <meta-data
-            android:name="xposedminversion"
-            android:value="53" />
-        <meta-data
-            android:name="xposedscope"
-            android:resource="@array/xposed_scope" />
-        <!-- Jembatan state play/koordinat untuk hook di proses target -->
+        <meta-data android:name="xposedmodule" android:value="true" />
+        <meta-data android:name="xposeddescription" android:value="@string/xposed_description" />
+        <meta-data android:name="xposedminversion" android:value="53" />
+        <meta-data android:name="xposedscope" android:resource="@array/xposed_scope" />
+
+        <!-- ===== FIX: izinkan LSPosed membuka akses baca prefs modul ===== -->
+        <meta-data android:name="xposedsharedprefs" android:value="true" />
+
+        <!-- Jembatan state (fallback; tak apa tetap ada) -->
         <provider
             android:name=".StateProvider"
             android:authorities="com.narik.terus.state"
