@@ -1,6 +1,7 @@
 <resources>
-    <!-- Scope LSPosed: proses yang akan di-hook. Tambahkan paket lain bila perlu. -->
+    <!-- Scope LSPosed: hanya proses aplikasi target yang di-hook. -->
     <string-array name="xposed_scope">
-        <item>android</item>
+        <item>com.pierwiastek.gpsdata</item>
+        <item>com.khalnadj.khaledhabbachi.gps</item>
     </string-array>
 </resources>
