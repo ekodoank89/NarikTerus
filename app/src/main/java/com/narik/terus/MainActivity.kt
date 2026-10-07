@@ -56,6 +56,8 @@ import com.google.android.gms.maps.model.LatLng
 import com.google.android.gms.maps.model.Marker
 import com.google.android.gms.maps.model.MarkerOptions
 import com.google.android.material.slider.Slider
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 import java.util.Locale
 import java.util.Random
@@ -79,7 +81,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         private const val DOT_COLOR_GJK = 0xFF34A853.toInt()
     }
 
-    /** Konfigurasi jitter per channel (jitter selalu aktif saat play). */
+    private data class Favorite(val name: String, val lat: Double, val lng: Double)
+
     private class JitterConfig {
         var stepMeters = 2f      // 0.1 .. 5.0
         var maxDistMeters = 3f   // 0.1 .. 5.0 (radius dari pusat)
@@ -215,7 +218,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         btnGjk.setOnClickListener { toggleGjk() }
         updateServiceButtonUi(btnGrb, badgeGrb, false)
         updateServiceButtonUi(btnGjk, badgeGjk, false)
-        btnFavorite.setOnClickListener { showFavoriteComingSoon() }
+        btnFavorite.setOnClickListener { showFavoriteDialog() }
         btnJitter.setOnClickListener { showJitterDialog() }
 
         imgCenterPin.setOnClickListener { onPinTapped() }
@@ -327,7 +330,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         chipGjk.isVisible = showGjkChip && gjkMarker != null
     }
 
-    /** Chip menampilkan posisi live yang di-spoof (titik jitter / pusat). */
     private fun updateGrbChipText() {
         val pos = grbDot?.position ?: grbMarker?.position ?: return
         chipGrb.text = formatLatLng(pos)
@@ -338,7 +340,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         chipGjk.text = formatLatLng(pos)
     }
 
-    /** Tap chip GRB/GJK: kamera terbang ke koordinat marker (pusat). */
     private fun flyToServiceMarker(channel: String) {
         val pos = markerFor(channel)?.position ?: return
         map?.animateCamera(CameraUpdateFactory.newLatLng(pos))
@@ -520,17 +521,229 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         refreshSetLabels()
     }
 
-    // --------------------------------------------------- favorite & jitter
+    // ------------------------------------------------------------ favorite
 
-    private fun showFavoriteComingSoon() {
-        AlertDialog.Builder(this)
-            .setTitle(R.string.btn_favorite)
-            .setMessage(R.string.favorite_coming_soon)
-            .setPositiveButton(android.R.string.ok, null)
+    private fun textWatcher(onChange: () -> Unit): TextWatcher = object : TextWatcher {
+        override fun afterTextChanged(s: Editable?) = onChange()
+        override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+        override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+    }
+
+    private fun loadFavorites(channel: String): MutableList<Favorite> {
+        val out = mutableListOf<Favorite>()
+        try {
+            val arr = JSONArray(statePrefs.getString("favorites_$channel", "[]") ?: "[]")
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                out.add(
+                    Favorite(
+                        o.getString("name"),
+                        o.getDouble("lat"),
+                        o.getDouble("lng")
+                    )
+                )
+            }
+        } catch (_: Throwable) {
+        }
+        return out
+    }
+
+    private fun persistFavorites(channel: String, list: List<Favorite>) {
+        val arr = JSONArray()
+        for (f in list) {
+            arr.put(
+                JSONObject()
+                    .put("name", f.name)
+                    .put("lat", f.lat)
+                    .put("lng", f.lng)
+            )
+        }
+        statePrefs.edit().putString("favorites_$channel", arr.toString()).apply()
+    }
+
+    private fun showFavoriteDialog() {
+        val view = layoutInflater.inflate(R.layout.dialog_favorite, null)
+
+        val tabGrb = view.findViewById<TextView>(R.id.tab_fav_grb)
+        val tabGjk = view.findViewById<TextView>(R.id.tab_fav_gjk)
+        val pageGrb = view.findViewById<View>(R.id.page_fav_grb)
+        val pageGjk = view.findViewById<View>(R.id.page_fav_gjk)
+
+        var dlg: AlertDialog? = null
+
+        fun bindChannel(ch: String) {
+            val pageRoot = view.findViewById<View>(
+                resources.getIdentifier("page_fav_$ch", "id", packageName)
+            )
+
+            fun vid(base: String) = resources.getIdentifier("${base}_$ch", "id", packageName)
+
+            val headerPin = pageRoot.findViewById<TextView>(vid("header_pin"))
+            val contentPin = pageRoot.findViewById<View>(vid("content_pin"))
+            val inputNamePin = pageRoot.findViewById<EditText>(vid("input_name_pin"))
+            val tvCoord = pageRoot.findViewById<TextView>(vid("coord_pin"))
+            val btnSavePin = pageRoot.findViewById<Button>(vid("btn_save_pin"))
+            val headerManual = pageRoot.findViewById<TextView>(vid("header_manual"))
+            val contentManual = pageRoot.findViewById<View>(vid("content_manual"))
+            val inputNameManual = pageRoot.findViewById<EditText>(vid("input_name_manual"))
+            val inputLat = pageRoot.findViewById<EditText>(vid("input_lat_manual"))
+            val inputLng = pageRoot.findViewById<EditText>(vid("input_lng_manual"))
+            val btnSaveManual = pageRoot.findViewById<Button>(vid("btn_save_manual"))
+            val listContainer = pageRoot.findViewById<LinearLayout>(vid("list_fav"))
+            val emptyView = pageRoot.findViewById<View>(vid("empty_fav"))
+
+            var editingIndex: Int? = null
+
+            // Koordinat pin saat dialog dibuka (modal -> tidak berubah selama terbuka)
+            val pinCoord = map?.cameraPosition?.target
+            tvCoord.text = getString(
+                R.string.fav_pin_coord, pinCoord?.let { formatLatLng(it) } ?: "-"
+            )
+
+            fun refreshButtons() {
+                btnSavePin.isEnabled = inputNamePin.text.toString().trim().isNotEmpty()
+                btnSaveManual.isEnabled =
+                    inputNameManual.text.toString().trim().isNotEmpty() &&
+                        inputLat.text.toString().trim().isNotEmpty() &&
+                        inputLng.text.toString().trim().isNotEmpty()
+            }
+
+            fun resetManualToSave() {
+                editingIndex = null
+                btnSaveManual.setText(R.string.fav_save)
+            }
+
+            fun clearPinInputs() {
+                inputNamePin.setText("")
+                refreshButtons()
+            }
+
+            fun clearManualInputs() {
+                inputNameManual.setText("")
+                inputLat.setText("")
+                inputLng.setText("")
+                refreshButtons()
+            }
+
+            fun refreshList() {
+                val favs = loadFavorites(ch)
+                listContainer.removeAllViews()
+                emptyView.isVisible = favs.isEmpty()
+                favs.forEachIndexed { index, f ->
+                    val row = layoutInflater.inflate(R.layout.row_favorite, listContainer, false)
+                    row.findViewById<TextView>(R.id.fav_name).text = f.name
+                    row.findViewById<TextView>(R.id.fav_coords).text =
+                        formatLatLng(LatLng(f.lat, f.lng))
+
+                    // Tap nama = play/stop channel di koordinat favorite
+                    row.findViewById<View>(R.id.fav_row_click).setOnClickListener {
+                        if (playingFor(ch)) stopChannel(ch)
+                        else startChannel(ch, LatLng(f.lat, f.lng))
+                        dlg?.dismiss()
+                    }
+
+                    // Edit: isi MANUAL + unhide + tombol jadi Update
+                    row.findViewById<View>(R.id.btn_edit_fav).setOnClickListener {
+                        inputNameManual.setText(f.name)
+                        inputLat.setText(f.lat.toString())
+                        inputLng.setText(f.lng.toString())
+                        editingIndex = index
+                        btnSaveManual.setText(R.string.fav_update)
+                        contentManual.isVisible = true
+                        refreshButtons()
+                    }
+
+                    // Hapus: dialog konfirmasi dulu
+                    row.findViewById<View>(R.id.btn_delete_fav).setOnClickListener {
+                        AlertDialog.Builder(this)
+                            .setTitle(R.string.fav_delete_title)
+                            .setMessage(getString(R.string.fav_delete_confirm, f.name))
+                            .setPositiveButton(R.string.fav_delete_yes) { _, _ ->
+                                val cur = loadFavorites(ch)
+                                if (index < cur.size) {
+                                    cur.removeAt(index)
+                                    persistFavorites(ch, cur)
+                                }
+                                resetManualToSave()
+                                refreshList()
+                            }
+                            .setNegativeButton(android.R.string.cancel, null)
+                            .show()
+                    }
+
+                    listContainer.addView(row)
+                }
+            }
+
+            // Collapse/expand sub menu
+            headerPin.setOnClickListener { contentPin.isVisible = !contentPin.isVisible }
+            headerManual.setOnClickListener {
+                contentManual.isVisible = !contentManual.isVisible
+            }
+
+            inputNamePin.addTextChangedListener(textWatcher { refreshButtons() })
+            inputNameManual.addTextChangedListener(textWatcher { refreshButtons() })
+            inputLat.addTextChangedListener(textWatcher { refreshButtons() })
+            inputLng.addTextChangedListener(textWatcher { refreshButtons() })
+
+            // Simpan DARI PIN
+            btnSavePin.setOnClickListener {
+                val name = inputNamePin.text.toString().trim()
+                val pos = map?.cameraPosition?.target ?: return@setOnClickListener
+                if (name.isEmpty()) return@setOnClickListener
+                val cur = loadFavorites(ch)
+                cur.add(Favorite(name, pos.latitude, pos.longitude))
+                persistFavorites(ch, cur)
+                clearPinInputs()
+                contentPin.isVisible = false // auto-hide setelah simpan
+                refreshList()
+            }
+
+            // Simpan / Update MANUAL
+            btnSaveManual.setOnClickListener {
+                val name = inputNameManual.text.toString().trim()
+                val lat = inputLat.text.toString().trim().toDoubleOrNull()
+                val lng = inputLng.text.toString().trim().toDoubleOrNull()
+                if (name.isEmpty() || lat == null || lng == null) return@setOnClickListener
+                val cur = loadFavorites(ch)
+                val editing = editingIndex
+                if (editing != null && editing < cur.size) {
+                    cur[editing] = Favorite(name, lat, lng)
+                } else {
+                    cur.add(Favorite(name, lat, lng))
+                }
+                persistFavorites(ch, cur)
+                clearManualInputs()
+                resetManualToSave()
+                contentManual.isVisible = false // auto-hide setelah simpan/update
+                refreshList()
+            }
+
+            refreshButtons()
+            refreshList()
+        }
+
+        bindChannel("grb")
+        bindChannel("gjk")
+
+        fun switchFavTab(ch: String) {
+            pageGrb.isVisible = ch == "grb"
+            pageGjk.isVisible = ch == "gjk"
+            styleTab(tabGrb, ch == "grb")
+            styleTab(tabGjk, ch == "gjk")
+        }
+        tabGrb.setOnClickListener { switchFavTab("grb") }
+        tabGjk.setOnClickListener { switchFavTab("gjk") }
+        switchFavTab("grb")
+
+        dlg = AlertDialog.Builder(this)
+            .setTitle(R.string.fav_title)
+            .setView(view)
             .show()
     }
 
-    /** Nilai default per channel: (langkah, batas langkah, interval). */
+    // ------------------------------------------------------------- jitter
+
     private fun defaultJitterFor(channel: String): Triple<Float, Float, Long> =
         if (channel == "grb") Triple(2f, 3f, 4L) else Triple(3f, 4f, 5L)
 
@@ -556,7 +769,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             .apply()
     }
 
-    /** Dialog jitter: slider live + tombol Default, tanpa tombol Simpan/Batal. */
     private fun showJitterDialog() {
         val view = layoutInflater.inflate(R.layout.dialog_jitter, null)
 
@@ -609,7 +821,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 cfg.maxDistMeters = value
                 persistJitter(ch)
                 refreshLabels()
-                // Lingkaran radius ter-update live
                 circleFor(ch)?.radius = value.toDouble()
             }
 
@@ -646,7 +857,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         AlertDialog.Builder(this)
             .setTitle(R.string.jitter_title)
             .setView(view)
-            .show() // ditutup dengan tap di luar / back — semua tersimpan live
+            .show()
     }
 
     // ---------------------------------------------------- mesin jitter
@@ -705,11 +916,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         }
     }
 
-    /**
-     * Satu langkah random walk: titik kecil bergerak acak (≤ langkah) dari
-     * posisinya; bila keluar batas langkah (radius dari pusat), dijepit ke
-     * tepi. Marker pusat TIDAK bergerak. Posisi titik = posisi spoof.
-     */
     private fun jitterTick(channel: String) {
         val running = if (channel == "grb") grbJitterRunning else gjkJitterRunning
         if (!running) return
@@ -755,54 +961,89 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         return 2 * EARTH_RADIUS_M * Math.asin(Math.sqrt(s))
     }
 
-    // --------------------------------------------------- marker GRB / GJK
+    // --------------------------------------------------- play/stop channel
 
-    private fun toggleGrb() {
+    /** Mulai channel pada posisi tertentu (dari pin ATAU dari favorite). */
+    private fun startChannel(channel: String, pos: LatLng) {
         val googleMap = map ?: return
-        grbPlaying = !grbPlaying
-        if (grbPlaying) {
-            val pos = googleMap.cameraPosition.target
-            grbMarker = addServiceMarker(R.drawable.ic_marker_grb, pos)
+        if (channel == "grb") {
+            grbPlaying = true
+            if (grbMarker == null) {
+                grbMarker = addServiceMarker(R.drawable.ic_marker_grb, pos)
+            } else {
+                grbMarker?.position = pos
+            }
             updateGrbChipText()
             persistServiceState("grb", true, pos)
             grbJitterCenter = pos
             ensureJitterVisuals("grb")
+            grbDot?.position = pos
+            grbRadiusCircle?.center = pos
+            grbRadiusCircle?.radius = jitterGrb.maxDistMeters.toDouble()
+            stopJitter("grb")
             startJitter("grb")
+            refreshGrbChip()
+            updateServiceButtonUi(btnGrb, badgeGrb, true)
+            val p = grbDot?.position ?: pos
+            sendStateTo(grbTarget, "grb", true, p, grbMethods)
         } else {
+            gjkPlaying = true
+            if (gjkMarker == null) {
+                gjkMarker = addServiceMarker(R.drawable.ic_marker_gjk, pos)
+            } else {
+                gjkMarker?.position = pos
+            }
+            updateGjkChipText()
+            persistServiceState("gjk", true, pos)
+            gjkJitterCenter = pos
+            ensureJitterVisuals("gjk")
+            gjkDot?.position = pos
+            gjkRadiusCircle?.center = pos
+            gjkRadiusCircle?.radius = jitterGjk.maxDistMeters.toDouble()
+            stopJitter("gjk")
+            startJitter("gjk")
+            refreshGjkChip()
+            updateServiceButtonUi(btnGjk, badgeGjk, true)
+            val p = gjkDot?.position ?: pos
+            sendStateTo(gjkTarget, "gjk", true, p, gjkMethods)
+        }
+    }
+
+    /** Hentikan channel + pastikan OFF terkirim ke target. */
+    private fun stopChannel(channel: String) {
+        if (channel == "grb") {
+            grbPlaying = false
             stopJitter("grb")
             clearJitterVisuals("grb")
             grbMarker?.remove()
             grbMarker = null
             grbJitterCenter = null
             persistServiceState("grb", false, null)
-        }
-        pushCurrentPosition("grb")
-        refreshGrbChip()
-        updateServiceButtonUi(btnGrb, badgeGrb, grbPlaying)
-    }
-
-    private fun toggleGjk() {
-        val googleMap = map ?: return
-        gjkPlaying = !gjkPlaying
-        if (gjkPlaying) {
-            val pos = googleMap.cameraPosition.target
-            gjkMarker = addServiceMarker(R.drawable.ic_marker_gjk, pos)
-            updateGjkChipText()
-            persistServiceState("gjk", true, pos)
-            gjkJitterCenter = pos
-            ensureJitterVisuals("gjk")
-            startJitter("gjk")
+            refreshGrbChip()
+            updateServiceButtonUi(btnGrb, badgeGrb, false)
+            sendStateTo(grbTarget, "grb", false, null, grbMethods)
         } else {
+            gjkPlaying = false
             stopJitter("gjk")
             clearJitterVisuals("gjk")
             gjkMarker?.remove()
             gjkMarker = null
             gjkJitterCenter = null
             persistServiceState("gjk", false, null)
+            refreshGjkChip()
+            updateServiceButtonUi(btnGjk, badgeGjk, false)
+            sendStateTo(gjkTarget, "gjk", false, null, gjkMethods)
         }
-        pushCurrentPosition("gjk")
-        refreshGjkChip()
-        updateServiceButtonUi(btnGjk, badgeGjk, gjkPlaying)
+    }
+
+    private fun toggleGrb() {
+        if (grbPlaying) stopChannel("grb")
+        else startChannel("grb", map?.cameraPosition?.target ?: return)
+    }
+
+    private fun toggleGjk() {
+        if (gjkPlaying) stopChannel("gjk")
+        else startChannel("gjk", map?.cameraPosition?.target ?: return)
     }
 
     private fun addServiceMarker(drawableRes: Int, pos: LatLng): Marker? =
@@ -814,47 +1055,16 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 .zIndex(3f)
         )
 
-    private fun pushCurrentPosition(channel: String) {
-        if (!playingFor(channel)) return
-        val pos = dotFor(channel)?.position ?: markerFor(channel)?.position ?: return
-        sendStateTo(currentTarget(channel), channel, true, pos, methodsFor(channel))
-    }
-
     private fun restoreServiceStates() {
-        val googleMap = map ?: return
-
         if (statePrefs.getBoolean("grb_play", false)) {
-            grbPlaying = true
             val lat = statePrefs.getString("grb_lat", null)?.toDoubleOrNull()
             val lng = statePrefs.getString("grb_lng", null)?.toDoubleOrNull()
-            val pos = if (lat != null && lng != null) LatLng(lat, lng) else null
-            if (pos != null) {
-                grbMarker = addServiceMarker(R.drawable.ic_marker_grb, pos)
-            }
-            updateGrbChipText()
-            refreshGrbChip()
-            updateServiceButtonUi(btnGrb, badgeGrb, true)
-            grbJitterCenter = grbMarker?.position
-            ensureJitterVisuals("grb")
-            startJitter("grb")
-            pushCurrentPosition("grb")
+            if (lat != null && lng != null) startChannel("grb", LatLng(lat, lng))
         }
-
         if (statePrefs.getBoolean("gjk_play", false)) {
-            gjkPlaying = true
             val lat = statePrefs.getString("gjk_lat", null)?.toDoubleOrNull()
             val lng = statePrefs.getString("gjk_lng", null)?.toDoubleOrNull()
-            val pos = if (lat != null && lng != null) LatLng(lat, lng) else null
-            if (pos != null) {
-                gjkMarker = addServiceMarker(R.drawable.ic_marker_gjk, pos)
-            }
-            updateGjkChipText()
-            refreshGjkChip()
-            updateServiceButtonUi(btnGjk, badgeGjk, true)
-            gjkJitterCenter = gjkMarker?.position
-            ensureJitterVisuals("gjk")
-            startJitter("gjk")
-            pushCurrentPosition("gjk")
+            if (lat != null && lng != null) startChannel("gjk", LatLng(lat, lng))
         }
     }
 
@@ -880,6 +1090,12 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             File(spDir, "$PREFS_NAME.xml").setReadable(true, false)
         } catch (_: Throwable) {
         }
+    }
+
+    private fun pushCurrentPosition(channel: String) {
+        if (!playingFor(channel)) return
+        val pos = dotFor(channel)?.position ?: markerFor(channel)?.position ?: return
+        sendStateTo(currentTarget(channel), channel, true, pos, methodsFor(channel))
     }
 
     private fun sendStateTo(
@@ -929,7 +1145,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         return BitmapDescriptorFactory.fromBitmap(padded)
     }
 
-    /** Titik kecil bulat (10dp) untuk jitter, anchor tengah. */
     private fun dotIcon(color: Int): BitmapDescriptor {
         val density = resources.displayMetrics.density
         val size = (10 * density).toInt().coerceAtLeast(8)
@@ -944,7 +1159,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         return BitmapDescriptorFactory.fromBitmap(bmp)
     }
 
-    /** Wujud tombol sesuai state. */
     private fun updateServiceButtonUi(button: View, badge: ImageView, playing: Boolean) {
         button.setBackgroundResource(
             if (playing) R.drawable.bg_fab_active else R.drawable.bg_fab_circle
