@@ -8,10 +8,9 @@ import android.net.Uri
 import android.os.Bundle
 
 /**
- * Jembatan IPC: proses aplikasi target (via MainHook) membaca state
- * play/stop + koordinat marker melalui panggilan Binder, yang diizinkan
- * SELinux antar aplikasi tanpa syarat chmod.
- * Hanya-baca: satu-satunya method adalah "get".
+ * Jembatan IPC: MainHook di proses aplikasi target membaca state
+ * play/koordinat via panggilan Binder (diizinkan SELinux antar-app).
+ * Hanya-baca, murni call()-based.
  */
 class StateProvider : ContentProvider() {
 
@@ -37,7 +36,6 @@ class StateProvider : ContentProvider() {
         }
     }
 
-    // Tidak dipakai — provider ini murni call()-based, hanya-baca.
     override fun query(
         uri: Uri, projection: Array<out String>?, selection: String?,
         selectionArgs: Array<out String>?, sortOrder: String?
