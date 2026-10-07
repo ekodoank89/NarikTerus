@@ -54,6 +54,7 @@
     <string name="trigger_hint">Kata kunci (pisah koma). Kosong = nonaktif</string>
     <string name="trigger_save">Simpan</string>
     <string name="trigger_saved">Triger disimpan (aktif saat order masuk)</string>
+    <string name="recent_open">Recent</string>
     <string name="recent_title">Triger Recent (tap = salin)</string>
     <string name="recent_empty">Belum ada payload tercatat</string>
     <string name="recent_copied">Disalin ke clipboard</string>
