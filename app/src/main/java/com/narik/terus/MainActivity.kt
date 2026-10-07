@@ -63,8 +63,17 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         /** Celah transparan di bawah marker agar titik biru tidak tertutup. */
         private const val MARKER_BOTTOM_GAP_DP = 8f
 
-        /** Nama file prefs yang dibaca MainHook via XSharedPreferences. */
+        /** Nama file prefs yang dibaca hook/provoder. */
         private const val PREFS_NAME = "narik_state"
+
+        /** Broadcast IPC ke hook di proses target (harus sama dgn MainHook). */
+        private const val ACTION_STATE = "com.narik.terus.ACTION_STATE"
+
+        /** Target default per channel (bisa ditimpa via prefs <channel>_target). */
+        private val DEFAULT_TARGETS = mapOf(
+            "grb" to "com.pierwiastek.gpsdata",
+            "gjk" to "com.khalnadj.khaledhabbachi.gps"
+        )
     }
 
     private lateinit var fusedLocationClient: FusedLocationProviderClient
@@ -109,7 +118,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private var showGrbChip = true
     private var showGjkChip = true
 
-    /** Prefs state yang dibaca hook di proses aplikasi target. */
+    /** Prefs state yang dibaca hook/provoder. */
     private val statePrefs by lazy { getSharedPreferences(PREFS_NAME, MODE_PRIVATE) }
 
     // ------------------------------------------------------------ onCreate
@@ -317,9 +326,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     /**
      * Play  : patok marker GRB pada KOORDINAT PIN SAAT INI (pusat kamera)
-     *         + tulis state ke prefs agar hook di proses target meng-spoof
-     *         lokasi ke koordinat ini.
-     * Stop  : hapus marker + matikan spoofing di proses target.
+     *         + tulis prefs + PUSH broadcast ke proses target.
+     * Stop  : hapus marker + matikan spoofing.
      */
     private fun toggleGrb() {
         val googleMap = map ?: return
@@ -329,10 +337,12 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             grbMarker = addServiceMarker(R.drawable.ic_marker_grb, pos)
             updateGrbChipText()
             persistServiceState("grb", true, pos)
+            pushStateToTargets("grb", true, pos)
         } else {
             grbMarker?.remove()
             grbMarker = null
             persistServiceState("grb", false, null)
+            pushStateToTargets("grb", false, null)
         }
         refreshGrbChip()
         updateServiceButtonUi(btnGrb, badgeGrb, grbPlaying)
@@ -347,10 +357,12 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             gjkMarker = addServiceMarker(R.drawable.ic_marker_gjk, pos)
             updateGjkChipText()
             persistServiceState("gjk", true, pos)
+            pushStateToTargets("gjk", true, pos)
         } else {
             gjkMarker?.remove()
             gjkMarker = null
             persistServiceState("gjk", false, null)
+            pushStateToTargets("gjk", false, null)
         }
         refreshGjkChip()
         updateServiceButtonUi(btnGjk, badgeGjk, gjkPlaying)
@@ -367,9 +379,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         )
 
     /**
-     * Pulihkan state play saat aplikasi dibuka ulang (mis. setelah proses
-     * mati): marker + tombol + chip dibuat ulang dari prefs. Spoofing di
-     * proses target tidak pernah berhenti selama play=true di prefs.
+     * Pulihkan state play saat aplikasi dibuka ulang, lalu PUSH ulang
+     * state ke target (menyinkronkan proses target yang masih hidup).
      */
     private fun restoreServiceStates() {
         val googleMap = map ?: return
@@ -384,6 +395,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             updateGrbChipText()
             refreshGrbChip()
             updateServiceButtonUi(btnGrb, badgeGrb, true)
+            pushStateToTargets("grb", true, grbMarker?.position)
         }
 
         if (statePrefs.getBoolean("gjk_play", false)) {
@@ -396,14 +408,14 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             updateGjkChipText()
             refreshGjkChip()
             updateServiceButtonUi(btnGjk, badgeGjk, true)
+            pushStateToTargets("gjk", true, gjkMarker?.position)
         }
     }
 
-    // --------------------------------------------- prefs untuk hook target
+    // ---------------------------------- prefs + broadcast untuk hook target
 
     /**
-     * Tulis state play/stop + koordinat marker agar dibaca MainHook
-     * di proses aplikasi target (via XSharedPreferences).
+     * Tulis state play/stop + koordinat marker ke prefs (untuk query/pull).
      */
     private fun persistServiceState(key: String, playing: Boolean, pos: LatLng?) {
         val editor = statePrefs.edit()
@@ -417,8 +429,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     }
 
     /**
-     * Buka akses baca file prefs agar XSharedPreferences di proses target
-     * dapat membacanya (dibantu SELinux patch LSPosed).
+     * Buka akses baca file prefs (jalur lama; tetap dipertahankan tanpa ruginya).
      */
     private fun makeStatePrefsWorldReadable() {
         try {
@@ -428,6 +439,25 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             spDir.setExecutable(true, false)
             File(spDir, "$PREFS_NAME.xml").setReadable(true, false)
         } catch (_: Throwable) {
+        }
+    }
+
+    /**
+     * PUSH state ke proses target via broadcast (SELinux-safe, tanpa
+     * syarat permission/visibility). Receiver dinamis di target yang
+     * mengambilnya dan menyimpan ke memori prosesnya.
+     */
+    private fun pushStateToTargets(channel: String, playing: Boolean, pos: LatLng?) {
+        val target = statePrefs.getString("${channel}_target", null)
+            ?: DEFAULT_TARGETS[channel] ?: return
+        runCatching {
+            sendBroadcast(
+                Intent(ACTION_STATE).setPackage(target)
+                    .putExtra("channel", channel)
+                    .putExtra("play", playing)
+                    .putExtra("lat", pos?.latitude ?: 0.0)
+                    .putExtra("lng", pos?.longitude ?: 0.0)
+            )
         }
     }
 
