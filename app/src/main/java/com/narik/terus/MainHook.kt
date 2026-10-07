@@ -1,10 +1,11 @@
 package com.narik.terus
 
-import android.app.AndroidAppHelper
+import android.app.Application
+import android.content.BroadcastReceiver
 import android.content.Context
-import android.net.Uri
-import android.os.Handler
-import android.os.HandlerThread
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.Build
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XSharedPreferences
@@ -15,47 +16,45 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * Sumber state (urutan): ContentProvider modul (UTAMA) -> XSharedPreferences (CADANGAN).
- * Watchdog internal memastikan perubahan play/stop tercatat di log
- * dalam 1 detik, terlepas dari apakah app target sedang memanggil lokasi.
+ * Sumber state (urutan):
+ * 1. MEMORI — diisi broadcast ACTION_STATE dari modul (PUSH real-time
+ *    maupun balasan query saat app target start). SELinux-safe.
+ * 2. XSharedPreferences — fallback.
  */
 class MainHook : IXposedHookLoadPackage {
 
     companion object {
         private const val PKG_GRB = "com.pierwiastek.gpsdata"
         private const val PKG_GJK = "com.khalnadj.khaledhabbachi.gps"
+        private const val MODULE_PKG = "com.narik.terus"
 
-        private const val STATE_AUTHORITY = "com.narik.terus.state"
-        private const val METHOD_GET = "get"
+        const val ACTION_STATE = "com.narik.terus.ACTION_STATE"
+        const val ACTION_QUERY = "com.narik.terus.ACTION_QUERY"
+
+        private const val KEY_CHANNEL = "channel"
         private const val KEY_PLAY = "play"
         private const val KEY_LAT = "lat"
         private const val KEY_LNG = "lng"
+        private const val KEY_PACKAGE = "package"
 
-        private const val REFRESH_INTERVAL_MS = 500L
-        private const val WATCHDOG_INTERVAL_MS = 1_000L
+        private const val PREFS_NAME = "narik_state"
+        private const val PREFS_RELOAD_INTERVAL_MS = 500L
         private const val SERVE_LOG_INTERVAL_MS = 10_000L
     }
 
-    private data class State(
-        val playing: Boolean,
-        val lat: Double,
-        val lng: Double,
-        val source: String
-    )
+    private data class State(val playing: Boolean, val lat: Double, val lng: Double)
 
     private var channel: String? = null
     private var prefs: XSharedPreferences? = null
 
-    private val stateLock = Any()
-    private var lastRefreshAt = 0L
+    @Volatile
+    private var memState: State? = null
+
+    private val appHookDone = AtomicBoolean(false)
+    private val prefsDiagLogged = AtomicBoolean(false)
+    private val firstHookCall = AtomicBoolean(false)
     private val lastPrefsReload = AtomicLong(0L)
     private val lastServeLog = AtomicLong(0L)
-    private val firstHookCall = AtomicBoolean(false)
-    private val providerErrLogged = AtomicBoolean(false)
-    private val prefsDiagLogged = AtomicBoolean(false)
-
-    @Volatile
-    private var cached = State(false, 0.0, 0.0, "-")
 
     override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
         channel = when (lpparam.packageName) {
@@ -65,141 +64,122 @@ class MainHook : IXposedHookLoadPackage {
         }
 
         prefs = try {
-            XSharedPreferences("com.narik.terus", "narik_state")
+            XSharedPreferences(MODULE_PKG, PREFS_NAME)
         } catch (t: Throwable) {
             XposedBridge.log("[NarikTerus] XSharedPreferences gagal dibuat: $t")
             null
         }
 
         hookLocationClass(lpparam.classLoader)
-        startWatchdog()
+        hookApplicationAttach(lpparam.packageName)
 
-        val st = currentState(force = true)
+        val st = currentState()
         XposedBridge.log(
             "[NarikTerus] Hook aktif: ${lpparam.packageName} -> channel=$channel | " +
-                "state awal: play=${st.playing}, sumber=${st.source}"
+                "state awal: ${st?.let { "play=${it.playing}" } ?: "menunggu broadcast"}"
         )
     }
 
-    // ------------------------------------------------------------ watchdog
+    // ------------------------------------------- broadcast state (utama)
 
-    /** Cek state tiap 1 dtk -> perubahan play/stop TERCATAT walau app target diam. */
-    private fun startWatchdog() {
-        val thread = HandlerThread("NarikTerusWatchdog")
-        thread.start()
-        Handler(thread.looper).apply {
-            val task = object : Runnable {
-                override fun run() {
-                    try {
-                        currentState()
-                    } catch (_: Throwable) {
+    private fun hookApplicationAttach(targetPackage: String) {
+        if (!appHookDone.compareAndSet(false, true)) return
+        try {
+            XposedHelpers.findAndHookMethod(
+                Application::class.java,
+                "attach",
+                Context::class.java,
+                object : XC_MethodHook() {
+                    override fun afterHookedMethod(param: MethodHookParam) {
+                        val ctx = param.thisObject as? Context ?: return
+                        registerStateReceiver(ctx)
+                        requestInitialState(ctx, targetPackage)
                     }
-                    postDelayed(this, WATCHDOG_INTERVAL_MS)
                 }
-            }
-            post(task)
+            )
+        } catch (t: Throwable) {
+            XposedBridge.log("[NarikTerus] Gagal hook Application.attach: $t")
         }
     }
 
-    // ------------------------------------------------------------- state
-
-    private fun currentState(force: Boolean = false): State {
-        val now = System.currentTimeMillis()
-        synchronized(stateLock) {
-            if (force || now - lastRefreshAt >= REFRESH_INTERVAL_MS) {
-                lastRefreshAt = now
-                val st = readFromPrefs() ?: readFromProvider()
-                    ?: State(false, 0.0, 0.0, "none")
-                if (st.playing != cached.playing) {
+    private fun registerStateReceiver(ctx: Context) {
+        val ch = channel ?: return
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                if (intent.getStringExtra(KEY_CHANNEL) != ch) return
+                val playing = intent.getBooleanExtra(KEY_PLAY, false)
+                val lat = intent.getDoubleExtra(KEY_LAT, 0.0)
+                val lng = intent.getDoubleExtra(KEY_LNG, 0.0)
+                val old = memState
+                memState = State(playing, lat, lng)
+                if (old?.playing != playing) {
                     XposedBridge.log(
-                        "[NarikTerus] $channel: spoof " +
-                            if (st.playing) "ON -> ${st.lat}, ${st.lng} (sumber=${st.source})"
-                            else "OFF (sumber=${st.source})"
+                        "[NarikTerus] $ch: state diterima -> " +
+                            if (playing) "ON ($lat, $lng)" else "OFF"
                     )
                 }
-                cached = st
             }
-            return cached
         }
-    }
-
-    private fun contextForProvider(): Context? {
-        AndroidAppHelper.currentApplication()?.let { return it }
-        // Fallback untuk saat Application belum dibuat
-        return try {
-            val at = XposedHelpers.callStaticMethod(
-                XposedHelpers.findClass("android.app.ActivityThread", null),
-                "currentActivityThread"
-            )
-            XposedHelpers.callMethod(at, "getApplication") as? Context
+        val filter = IntentFilter(ACTION_STATE)
+        try {
+            if (Build.VERSION.SDK_INT >= 33) {
+                ctx.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
+            } else {
+                ctx.registerReceiver(receiver, filter)
+            }
+            XposedBridge.log("[NarikTerus] $ch: receiver state terdaftar")
         } catch (t: Throwable) {
-            if (providerErrLogged.compareAndSet(false, true)) {
-                XposedBridge.log("[NarikTerus] provider: context gagal: $t")
-            }
-            null
+            XposedBridge.log("[NarikTerus] $ch: gagal daftar receiver: $t")
         }
     }
 
-    private fun readFromProvider(): State? {
-        val ch = channel ?: return null
-        return try {
-            val app = contextForProvider() ?: return null
-            val bundle = app.contentResolver.call(
-                Uri.parse("content://$STATE_AUTHORITY/state/$ch"),
-                METHOD_GET, ch, null
+    private fun requestInitialState(ctx: Context, targetPackage: String) {
+        val ch = channel ?: return
+        try {
+            ctx.sendBroadcast(
+                Intent(ACTION_QUERY).setPackage(MODULE_PKG)
+                    .putExtra(KEY_CHANNEL, ch)
+                    .putExtra(KEY_PACKAGE, targetPackage)
             )
-            if (bundle == null) {
-                if (providerErrLogged.compareAndSet(false, true)) {
-                    XposedBridge.log("[NarikTerus] provider: bundle null (authority tak terjangkau?)")
-                }
-                return null
-            }
-            val playing = bundle.getBoolean(KEY_PLAY, false)
-            if (!playing) return State(false, 0.0, 0.0, "provider")
-            val lat = bundle.getString(KEY_LAT)?.toDoubleOrNull() ?: return null
-            val lng = bundle.getString(KEY_LNG)?.toDoubleOrNull() ?: return null
-            State(true, lat, lng, "provider")
+            XposedBridge.log("[NarikTerus] $ch: query state terkirim ke modul")
         } catch (t: Throwable) {
-            if (providerErrLogged.compareAndSet(false, true)) {
-                XposedBridge.log("[NarikTerus] provider error: $t")
-            }
-            null
+            XposedBridge.log("[NarikTerus] $ch: query state gagal: $t")
         }
     }
 
-    private fun readFromPrefs(): State? {
+    // ------------------------------------------------------- pembacaan
+
+    private fun currentState(): State? {
+        memState?.let { return it } // UTAMA: dari broadcast
+
+        // Fallback: prefs (hanya jendela sesaat sebelum balasan broadcast tiba)
         val p = prefs ?: return null
         val ch = channel ?: return null
-
-        // Diagnostik sekali: apakah file prefs benar-benar bisa dibaca?
-        if (prefsDiagLogged.compareAndSet(false, true)) {
-            try {
-                val f = p.file
-                XposedBridge.log(
-                    "[NarikTerus] diag prefs: path=${f?.absolutePath} " +
-                        "exists=${f?.exists()} canRead=${f?.canRead()}"
-                )
-            } catch (t: Throwable) {
-                XposedBridge.log("[NarikTerus] diag prefs error: $t")
-            }
-        }
-
         return try {
             val now = System.currentTimeMillis()
             val last = lastPrefsReload.get()
-            if (now - last >= REFRESH_INTERVAL_MS && lastPrefsReload.compareAndSet(last, now)) {
+            if (now - last >= PREFS_RELOAD_INTERVAL_MS &&
+                lastPrefsReload.compareAndSet(last, now)
+            ) {
+                if (prefsDiagLogged.compareAndSet(false, true)) {
+                    val f = p.file
+                    XposedBridge.log(
+                        "[NarikTerus] diag prefs: path=${f?.absolutePath} " +
+                            "exists=${f?.exists()} canRead=${f?.canRead()}"
+                    )
+                }
                 p.reload()
             }
-            val playing = p.getBoolean("${ch}_play", false)
-            if (!playing) State(false, 0.0, 0.0, "prefs")
-            else State(
-                true,
-                p.getString("${ch}_lat", null)?.toDoubleOrNull() ?: 0.0,
-                p.getString("${ch}_lng", null)?.toDoubleOrNull() ?: 0.0,
-                "prefs"
-            )
-        } catch (t: Throwable) {
-            XposedBridge.log("[NarikTerus] readFromPrefs error: $t")
+            if (p.getBoolean("${ch}_play", false)) {
+                State(
+                    true,
+                    p.getString("${ch}_lat", null)?.toDoubleOrNull() ?: 0.0,
+                    p.getString("${ch}_lng", null)?.toDoubleOrNull() ?: 0.0
+                )
+            } else {
+                State(false, 0.0, 0.0)
+            }
+        } catch (_: Throwable) {
             null
         }
     }
@@ -215,14 +195,14 @@ class MainHook : IXposedHookLoadPackage {
                             "pertama kali dipanggil oleh app target"
                     )
                 }
-                val st = currentState()
+                val st = currentState() ?: return
                 if (!st.playing) return
 
                 val now = System.currentTimeMillis()
                 if (now - lastServeLog.get() >= SERVE_LOG_INTERVAL_MS) {
                     lastServeLog.set(now)
                     XposedBridge.log(
-                        "[NarikTerus] $channel: melayani ${st.lat}, ${st.lng} (sumber=${st.source})"
+                        "[NarikTerus] $channel: melayani ${st.lat}, ${st.lng}"
                     )
                 }
                 param.result =
