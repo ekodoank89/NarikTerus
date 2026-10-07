@@ -22,6 +22,7 @@ import android.text.Editable
 import android.text.TextWatcher
 import android.view.View
 import android.widget.ArrayAdapter
+import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -78,12 +79,11 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         private const val DOT_COLOR_GJK = 0xFF34A853.toInt()
     }
 
-    /** Konfigurasi jitter per channel. */
+    /** Konfigurasi jitter per channel (jitter selalu aktif saat play). */
     private class JitterConfig {
-        var enabled = true
-        var stepMeters = 1f      // 0.1 .. 3.0
-        var maxDistMeters = 3f   // "batas langkah" 0.1 .. 3.0 (radius dari pusat)
-        var intervalSec = 3L     // 1 .. 5
+        var stepMeters = 2f      // 0.1 .. 5.0
+        var maxDistMeters = 3f   // 0.1 .. 5.0 (radius dari pusat)
+        var intervalSec = 4L     // 1 .. 5
     }
 
     private lateinit var fusedLocationClient: FusedLocationProviderClient
@@ -530,27 +530,33 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             .show()
     }
 
+    /** Nilai default per channel: (langkah, batas langkah, interval). */
+    private fun defaultJitterFor(channel: String): Triple<Float, Float, Long> =
+        if (channel == "grb") Triple(2f, 3f, 4L) else Triple(3f, 4f, 5L)
+
     private fun loadJitterConfigs() {
         for (ch in listOf("grb", "gjk")) {
             val cfg = cfgFor(ch)
-            cfg.enabled = statePrefs.getBoolean("${ch}_jitter_enabled", true)
-            cfg.stepMeters = statePrefs.getFloat("${ch}_jitter_step", 1f).coerceIn(0.1f, 3f)
-            cfg.maxDistMeters = statePrefs.getFloat("${ch}_jitter_radius", 3f).coerceIn(0.1f, 3f)
-            cfg.intervalSec = statePrefs.getLong("${ch}_jitter_interval", 3L).coerceIn(1L, 5L)
+            val d = defaultJitterFor(ch)
+            cfg.stepMeters = statePrefs.getFloat("${ch}_jitter_step", d.first)
+                .coerceIn(0.1f, 5f)
+            cfg.maxDistMeters = statePrefs.getFloat("${ch}_jitter_radius", d.second)
+                .coerceIn(0.1f, 5f)
+            cfg.intervalSec = statePrefs.getLong("${ch}_jitter_interval", d.third)
+                .coerceIn(1L, 5L)
         }
     }
 
     private fun persistJitter(channel: String) {
         val cfg = cfgFor(channel)
         statePrefs.edit()
-            .putBoolean("${channel}_jitter_enabled", cfg.enabled)
             .putFloat("${channel}_jitter_step", cfg.stepMeters)
             .putLong("${channel}_jitter_interval", cfg.intervalSec)
             .putFloat("${channel}_jitter_radius", cfg.maxDistMeters)
             .apply()
     }
 
-    /** Dialog jitter: slider live, tanpa tombol — perubahan langsung aktif. */
+    /** Dialog jitter: slider live + tombol Default, tanpa tombol Simpan/Batal. */
     private fun showJitterDialog() {
         val view = layoutInflater.inflate(R.layout.dialog_jitter, null)
 
@@ -564,28 +570,17 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         fun bindChannel(ch: String) {
             val cfg = cfgFor(ch)
             val suffix = if (ch == "grb") "_grb" else "_gjk"
+            val d = defaultJitterFor(ch)
 
-            val toggle = view.findViewById<TextView>(
-                resources.getIdentifier("toggle_jitter$suffix", "id", packageName)
-            )
-            val lblStep = view.findViewById<TextView>(
-                resources.getIdentifier("label_step$suffix", "id", packageName)
-            )
-            val lblMax = view.findViewById<TextView>(
-                resources.getIdentifier("label_maxdist$suffix", "id", packageName)
-            )
-            val lblInt = view.findViewById<TextView>(
-                resources.getIdentifier("label_interval$suffix", "id", packageName)
-            )
-            val slStep = view.findViewById<Slider>(
-                resources.getIdentifier("slider_step$suffix", "id", packageName)
-            )
-            val slMax = view.findViewById<Slider>(
-                resources.getIdentifier("slider_maxdist$suffix", "id", packageName)
-            )
-            val slInt = view.findViewById<Slider>(
-                resources.getIdentifier("slider_interval$suffix", "id", packageName)
-            )
+            fun id(name: String) = resources.getIdentifier(name + suffix, "id", packageName)
+
+            val lblStep = view.findViewById<TextView>(id("label_step"))
+            val lblMax = view.findViewById<TextView>(id("label_maxdist"))
+            val lblInt = view.findViewById<TextView>(id("label_interval"))
+            val slStep = view.findViewById<Slider>(id("slider_step"))
+            val slMax = view.findViewById<Slider>(id("slider_maxdist"))
+            val slInt = view.findViewById<Slider>(id("slider_interval"))
+            val btnDefault = view.findViewById<Button>(id("btn_default"))
 
             fun refreshLabels() {
                 lblStep.text = getString(R.string.jitter_step_label, fmt1(cfg.stepMeters))
@@ -593,22 +588,16 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 lblInt.text = getString(
                     R.string.jitter_interval_label, cfg.intervalSec.toString()
                 )
-                toggle.text = getString(
-                    R.string.jitter_enabled, if (cfg.enabled) "AKTIF" else "MATI"
-                )
             }
 
-            slStep.value = cfg.stepMeters.coerceIn(0.1f, 3f)
-            slMax.value = cfg.maxDistMeters.coerceIn(0.1f, 3f)
-            slInt.value = cfg.intervalSec.toFloat().coerceIn(1f, 5f)
+            fun applyToSliders() {
+                slStep.value = cfg.stepMeters.coerceIn(0.1f, 5f)
+                slMax.value = cfg.maxDistMeters.coerceIn(0.1f, 5f)
+                slInt.value = cfg.intervalSec.toFloat().coerceIn(1f, 5f)
+            }
+
+            applyToSliders()
             refreshLabels()
-
-            toggle.setOnClickListener {
-                cfg.enabled = !cfg.enabled
-                persistJitter(ch)
-                refreshLabels()
-                syncJitterRuntime(ch)
-            }
 
             slStep.addOnChangeListener { _, value, _ ->
                 cfg.stepMeters = value
@@ -629,6 +618,16 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 persistJitter(ch)
                 refreshLabels()
             }
+
+            btnDefault.setOnClickListener {
+                cfg.stepMeters = d.first
+                cfg.maxDistMeters = d.second
+                cfg.intervalSec = d.third
+                persistJitter(ch)
+                applyToSliders()
+                refreshLabels()
+                circleFor(ch)?.radius = cfg.maxDistMeters.toDouble()
+            }
         }
 
         bindChannel("grb")
@@ -647,35 +646,22 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         AlertDialog.Builder(this)
             .setTitle(R.string.jitter_title)
             .setView(view)
-            .show() // tanpa tombol: ditutup dengan tap di luar / back
+            .show() // ditutup dengan tap di luar / back — semua tersimpan live
     }
 
     // ---------------------------------------------------- mesin jitter
 
     private fun startJitter(channel: String) {
-        val cfg = cfgFor(channel)
         val running = if (channel == "grb") grbJitterRunning else gjkJitterRunning
-        if (!cfg.enabled || running) return
+        if (running) return
         if (centerFor(channel) == null) return
         if (channel == "grb") grbJitterRunning = true else gjkJitterRunning = true
+        val cfg = cfgFor(channel)
         jitterHandler.postDelayed({ jitterTick(channel) }, cfg.intervalSec * 1000)
     }
 
     private fun stopJitter(channel: String) {
         if (channel == "grb") grbJitterRunning = false else gjkJitterRunning = false
-    }
-
-    /** Sinkronkan runtime jitter setelah konfigurasi berubah. */
-    private fun syncJitterRuntime(channel: String) {
-        val cfg = cfgFor(channel)
-        if (playingFor(channel) && cfg.enabled) {
-            ensureJitterVisuals(channel)
-            startJitter(channel)
-        } else {
-            stopJitter(channel)
-            clearJitterVisuals(channel)
-            if (playingFor(channel)) pushCurrentPosition(channel) // spoof diam di pusat
-        }
     }
 
     private fun ensureJitterVisuals(channel: String) {
@@ -780,10 +766,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             updateGrbChipText()
             persistServiceState("grb", true, pos)
             grbJitterCenter = pos
-            if (jitterGrb.enabled) {
-                ensureJitterVisuals("grb")
-                startJitter("grb")
-            }
+            ensureJitterVisuals("grb")
+            startJitter("grb")
         } else {
             stopJitter("grb")
             clearJitterVisuals("grb")
@@ -806,10 +790,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             updateGjkChipText()
             persistServiceState("gjk", true, pos)
             gjkJitterCenter = pos
-            if (jitterGjk.enabled) {
-                ensureJitterVisuals("gjk")
-                startJitter("gjk")
-            }
+            ensureJitterVisuals("gjk")
+            startJitter("gjk")
         } else {
             stopJitter("gjk")
             clearJitterVisuals("gjk")
@@ -853,10 +835,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             refreshGrbChip()
             updateServiceButtonUi(btnGrb, badgeGrb, true)
             grbJitterCenter = grbMarker?.position
-            if (jitterGrb.enabled) {
-                ensureJitterVisuals("grb")
-                startJitter("grb")
-            }
+            ensureJitterVisuals("grb")
+            startJitter("grb")
             pushCurrentPosition("grb")
         }
 
@@ -872,10 +852,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             refreshGjkChip()
             updateServiceButtonUi(btnGjk, badgeGjk, true)
             gjkJitterCenter = gjkMarker?.position
-            if (jitterGjk.enabled) {
-                ensureJitterVisuals("gjk")
-                startJitter("gjk")
-            }
+            ensureJitterVisuals("gjk")
+            startJitter("gjk")
             pushCurrentPosition("gjk")
         }
     }
