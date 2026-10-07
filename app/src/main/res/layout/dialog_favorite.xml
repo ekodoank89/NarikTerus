@@ -1,0 +1,314 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingHorizontal="12dp">
+
+        <TextView
+            android:id="@+id/tab_fav_grb"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:paddingVertical="10dp"
+            android:text="@string/jitter_tab_grb"
+            android:textSize="14sp" />
+
+        <TextView
+            android:id="@+id/tab_fav_gjk"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:paddingVertical="10dp"
+            android:text="@string/jitter_tab_gjk"
+            android:textSize="14sp" />
+    </LinearLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#1F000000" />
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <!-- ===== HALAMAN GRB ===== -->
+            <LinearLayout
+                android:id="@+id/page_fav_grb"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/header_pin_grb"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="?attr/selectableItemBackground"
+                    android:paddingHorizontal="18dp"
+                    android:paddingVertical="10dp"
+                    android:text="@string/fav_from_pin"
+                    android:textColor="#202124"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <LinearLayout
+                    android:id="@+id/content_pin_grb"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:paddingHorizontal="18dp"
+                    android:visibility="gone">
+
+                    <EditText
+                        android:id="@+id/input_name_pin_grb"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:hint="@string/fav_name_hint"
+                        android:inputType="text"
+                        android:singleLine="true" />
+
+                    <TextView
+                        android:id="@+id/coord_pin_grb"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:fontFamily="monospace"
+                        android:paddingVertical="4dp"
+                        android:textColor="#5F6368"
+                        android:textSize="13sp" />
+
+                    <Button
+                        android:id="@+id/btn_save_pin_grb"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:enabled="false"
+                        android:text="@string/fav_save" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/header_manual_grb"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="?attr/selectableItemBackground"
+                    android:paddingHorizontal="18dp"
+                    android:paddingVertical="10dp"
+                    android:text="@string/fav_manual"
+                    android:textColor="#202124"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <LinearLayout
+                    android:id="@+id/content_manual_grb"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:paddingHorizontal="18dp"
+                    android:visibility="gone">
+
+                    <EditText
+                        android:id="@+id/input_name_manual_grb"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:hint="@string/fav_name_hint"
+                        android:inputType="text"
+                        android:singleLine="true" />
+
+                    <EditText
+                        android:id="@+id/input_lat_manual_grb"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:hint="@string/fav_lat_hint"
+                        android:inputType="numberDecimal|numberSigned"
+                        android:singleLine="true" />
+
+                    <EditText
+                        android:id="@+id/input_lng_manual_grb"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:hint="@string/fav_lng_hint"
+                        android:inputType="numberDecimal|numberSigned"
+                        android:singleLine="true" />
+
+                    <Button
+                        android:id="@+id/btn_save_manual_grb"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:enabled="false"
+                        android:text="@string/fav_save" />
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingHorizontal="18dp"
+                    android:paddingVertical="10dp"
+                    android:text="@string/fav_list_label"
+                    android:textColor="#202124"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <LinearLayout
+                    android:id="@+id/list_fav_grb"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical" />
+
+                <TextView
+                    android:id="@+id/empty_fav_grb"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingHorizontal="18dp"
+                    android:paddingBottom="10dp"
+                    android:text="@string/fav_empty"
+                    android:textColor="#5F6368"
+                    android:textSize="13sp"
+                    android:visibility="gone" />
+            </LinearLayout>
+
+            <!-- ===== HALAMAN GJK ===== -->
+            <LinearLayout
+                android:id="@+id/page_fav_gjk"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/header_pin_gjk"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="?attr/selectableItemBackground"
+                    android:paddingHorizontal="18dp"
+                    android:paddingVertical="10dp"
+                    android:text="@string/fav_from_pin"
+                    android:textColor="#202124"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <LinearLayout
+                    android:id="@+id/content_pin_gjk"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:paddingHorizontal="18dp"
+                    android:visibility="gone">
+
+                    <EditText
+                        android:id="@+id/input_name_pin_gjk"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:hint="@string/fav_name_hint"
+                        android:inputType="text"
+                        android:singleLine="true" />
+
+                    <TextView
+                        android:id="@+id/coord_pin_gjk"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:fontFamily="monospace"
+                        android:paddingVertical="4dp"
+                        android:textColor="#5F6368"
+                        android:textSize="13sp" />
+
+                    <Button
+                        android:id="@+id/btn_save_pin_gjk"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:enabled="false"
+                        android:text="@string/fav_save" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/header_manual_gjk"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="?attr/selectableItemBackground"
+                    android:paddingHorizontal="18dp"
+                    android:paddingVertical="10dp"
+                    android:text="@string/fav_manual"
+                    android:textColor="#202124"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <LinearLayout
+                    android:id="@+id/content_manual_gjk"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:paddingHorizontal="18dp"
+                    android:visibility="gone">
+
+                    <EditText
+                        android:id="@+id/input_name_manual_gjk"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:hint="@string/fav_name_hint"
+                        android:inputType="text"
+                        android:singleLine="true" />
+
+                    <EditText
+                        android:id="@+id/input_lat_manual_gjk"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:hint="@string/fav_lat_hint"
+                        android:inputType="numberDecimal|numberSigned"
+                        android:singleLine="true" />
+
+                    <EditText
+                        android:id="@+id/input_lng_manual_gjk"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:hint="@string/fav_lng_hint"
+                        android:inputType="numberDecimal|numberSigned"
+                        android:singleLine="true" />
+
+                    <Button
+                        android:id="@+id/btn_save_manual_gjk"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:enabled="false"
+                        android:text="@string/fav_save" />
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingHorizontal="18dp"
+                    android:paddingVertical="10dp"
+                    android:text="@string/fav_list_label"
+                    android:textColor="#202124"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <LinearLayout
+                    android:id="@+id/list_fav_gjk"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical" />
+
+                <TextView
+                    android:id="@+id/empty_fav_gjk"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingHorizontal="18dp"
+                    android:paddingBottom="10dp"
+                    android:text="@string/fav_empty"
+                    android:textColor="#5F6368"
+                    android:textSize="13sp"
+                    android:visibility="gone" />
+            </LinearLayout>
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>
