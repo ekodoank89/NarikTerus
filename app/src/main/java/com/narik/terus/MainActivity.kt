@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
 import android.location.Location
 import android.net.Uri
 import android.os.Build
@@ -39,6 +40,7 @@ import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
 import com.google.android.gms.maps.model.Marker
 import com.google.android.gms.maps.model.MarkerOptions
+import java.io.File
 import java.util.Locale
 
 class MainActivity : AppCompatActivity(), OnMapReadyCallback {
@@ -57,6 +59,12 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
         /** Tinggi marker GRB/GJK = tinggi tampilan pin (56dp). */
         private const val MARKER_SIZE_DP = 56f
+
+        /** Celah transparan di bawah marker agar titik biru tidak tertutup. */
+        private const val MARKER_BOTTOM_GAP_DP = 8f
+
+        /** Nama file prefs yang dibaca MainHook via XSharedPreferences. */
+        private const val PREFS_NAME = "narik_state"
     }
 
     private lateinit var fusedLocationClient: FusedLocationProviderClient
@@ -100,6 +108,9 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     /** Toggle chip koordinat GRB/GJK dari menu rahasia (default aktif). */
     private var showGrbChip = true
     private var showGjkChip = true
+
+    /** Prefs state yang dibaca hook di proses aplikasi target. */
+    private val statePrefs by lazy { getSharedPreferences(PREFS_NAME, MODE_PRIVATE) }
 
     // ------------------------------------------------------------ onCreate
 
@@ -220,6 +231,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             }
         }
 
+        restoreServiceStates()
         if (hasLocationPermission()) enableMyLocation()
     }
 
@@ -304,53 +316,126 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     // --------------------------------------------------- marker GRB / GJK
 
     /**
-     * Play  : patok marker GRB pada KOORDINAT PIN SAAT INI (pusat kamera).
-     * Stop  : hapus marker (chip GRB ikut hilang).
+     * Play  : patok marker GRB pada KOORDINAT PIN SAAT INI (pusat kamera)
+     *         + tulis state ke prefs agar hook di proses target meng-spoof
+     *         lokasi ke koordinat ini.
+     * Stop  : hapus marker + matikan spoofing di proses target.
      */
     private fun toggleGrb() {
         val googleMap = map ?: return
         grbPlaying = !grbPlaying
         if (grbPlaying) {
-            grbMarker = googleMap.addMarker(
-                MarkerOptions()
-                    .position(googleMap.cameraPosition.target) // koordinat pin saat play
-                    .icon(markerIconAtPinSize(R.drawable.ic_marker_grb))
-                    .anchor(0.5f, 1f) // anchor bawah tengah
-                    .zIndex(3f)
-            )
+            val pos = googleMap.cameraPosition.target // koordinat pin saat play
+            grbMarker = addServiceMarker(R.drawable.ic_marker_grb, pos)
             updateGrbChipText()
+            persistServiceState("grb", true, pos)
         } else {
             grbMarker?.remove()
             grbMarker = null
+            persistServiceState("grb", false, null)
         }
         refreshGrbChip()
         updateServiceButtonUi(btnGrb, badgeGrb, grbPlaying)
     }
 
-    /** Sama seperti GRB, menggunakan ic_marker_gjk.png. */
+    /** Sama seperti GRB, untuk proses com.khalnadj.khaledhabbachi.gps. */
     private fun toggleGjk() {
         val googleMap = map ?: return
         gjkPlaying = !gjkPlaying
         if (gjkPlaying) {
-            gjkMarker = googleMap.addMarker(
-                MarkerOptions()
-                    .position(googleMap.cameraPosition.target) // koordinat pin saat play
-                    .icon(markerIconAtPinSize(R.drawable.ic_marker_gjk))
-                    .anchor(0.5f, 1f)
-                    .zIndex(3f)
-            )
+            val pos = googleMap.cameraPosition.target
+            gjkMarker = addServiceMarker(R.drawable.ic_marker_gjk, pos)
             updateGjkChipText()
+            persistServiceState("gjk", true, pos)
         } else {
             gjkMarker?.remove()
             gjkMarker = null
+            persistServiceState("gjk", false, null)
         }
         refreshGjkChip()
         updateServiceButtonUi(btnGjk, badgeGjk, gjkPlaying)
     }
 
+    /** Buat marker layanan: ukuran = pin, anchor bawah-tengah, gap di bawah. */
+    private fun addServiceMarker(drawableRes: Int, pos: LatLng): Marker? =
+        map?.addMarker(
+            MarkerOptions()
+                .position(pos)
+                .icon(markerIconAtPinSize(drawableRes))
+                .anchor(0.5f, 1f) // anchor bawah tengah
+                .zIndex(3f)
+        )
+
+    /**
+     * Pulihkan state play saat aplikasi dibuka ulang (mis. setelah proses
+     * mati): marker + tombol + chip dibuat ulang dari prefs. Spoofing di
+     * proses target tidak pernah berhenti selama play=true di prefs.
+     */
+    private fun restoreServiceStates() {
+        val googleMap = map ?: return
+
+        if (statePrefs.getBoolean("grb_play", false)) {
+            grbPlaying = true
+            val lat = statePrefs.getString("grb_lat", null)?.toDoubleOrNull()
+            val lng = statePrefs.getString("grb_lng", null)?.toDoubleOrNull()
+            if (lat != null && lng != null) {
+                grbMarker = addServiceMarker(R.drawable.ic_marker_grb, LatLng(lat, lng))
+            }
+            updateGrbChipText()
+            refreshGrbChip()
+            updateServiceButtonUi(btnGrb, badgeGrb, true)
+        }
+
+        if (statePrefs.getBoolean("gjk_play", false)) {
+            gjkPlaying = true
+            val lat = statePrefs.getString("gjk_lat", null)?.toDoubleOrNull()
+            val lng = statePrefs.getString("gjk_lng", null)?.toDoubleOrNull()
+            if (lat != null && lng != null) {
+                gjkMarker = addServiceMarker(R.drawable.ic_marker_gjk, LatLng(lat, lng))
+            }
+            updateGjkChipText()
+            refreshGjkChip()
+            updateServiceButtonUi(btnGjk, badgeGjk, true)
+        }
+    }
+
+    // --------------------------------------------- prefs untuk hook target
+
+    /**
+     * Tulis state play/stop + koordinat marker agar dibaca MainHook
+     * di proses aplikasi target (via XSharedPreferences).
+     */
+    private fun persistServiceState(key: String, playing: Boolean, pos: LatLng?) {
+        val editor = statePrefs.edit()
+            .putBoolean("${key}_play", playing)
+        if (pos != null) {
+            editor.putString("${key}_lat", pos.latitude.toString())
+            editor.putString("${key}_lng", pos.longitude.toString())
+        }
+        editor.apply()
+        makeStatePrefsWorldReadable()
+    }
+
+    /**
+     * Buka akses baca file prefs agar XSharedPreferences di proses target
+     * dapat membacanya (dibantu SELinux patch LSPosed).
+     */
+    private fun makeStatePrefsWorldReadable() {
+        try {
+            val dataDir = filesDir.parentFile ?: return
+            dataDir.setExecutable(true, false)
+            val spDir = File(dataDir, "shared_prefs")
+            spDir.setExecutable(true, false)
+            File(spDir, "$PREFS_NAME.xml").setReadable(true, false)
+        } catch (_: Throwable) {
+        }
+    }
+
+    // ------------------------------------------------- scaling icon marker
+
     /**
      * Skalakan PNG marker agar tingginya = MARKER_SIZE_DP (56dp, sama dengan pin),
-     * lebar mengikuti rasio asli. Hasilnya marker tampak seukuran pin di semua layar.
+     * lalu tambahkan celah transparan MARKER_BOTTOM_GAP_DP di bawahnya.
      */
     private fun markerIconAtPinSize(drawableRes: Int): BitmapDescriptor {
         val density = resources.displayMetrics.density
@@ -368,7 +453,15 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         val src = BitmapFactory.decodeResource(resources, drawableRes, null)
         val targetWidthPx = (targetHeightPx * (srcW.toFloat() / srcH)).toInt().coerceAtLeast(1)
         val scaled = Bitmap.createScaledBitmap(src, targetWidthPx, targetHeightPx, true)
-        return BitmapDescriptorFactory.fromBitmap(scaled)
+
+        // Bitmap baru lebih tinggi (asli + gap); area baru otomatis transparan
+        val gapPx = (MARKER_BOTTOM_GAP_DP * density).toInt()
+        val padded = Bitmap.createBitmap(
+            scaled.width, scaled.height + gapPx, Bitmap.Config.ARGB_8888
+        )
+        Canvas(padded).drawBitmap(scaled, 0f, 0f, null)
+
+        return BitmapDescriptorFactory.fromBitmap(padded)
     }
 
     /** Wujud tombol sesuai state: hijau + ⏹ saat jalan, putih + ▶ saat mati. */
