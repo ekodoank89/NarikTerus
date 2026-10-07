@@ -47,4 +47,6 @@
     <string name="fav_delete_title">Hapus favorite</string>
     <string name="fav_delete_confirm">Hapus \"%1$s\"?</string>
     <string name="fav_delete_yes">Hapus</string>
+    <string name="fav_duplicate_title">Koordinat sudah ada</string>
+    <string name="fav_duplicate_msg">Koordinat %1$s sudah ada di list favorite dengan nama \"%2$s\".</string>
 </resources>
