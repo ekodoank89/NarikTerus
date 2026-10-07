@@ -7,6 +7,8 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.Typeface
 import android.location.Location
 import android.net.Uri
@@ -47,9 +49,12 @@ import com.google.android.gms.maps.SupportMapFragment
 import com.google.android.gms.maps.model.BitmapDescriptor
 import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.model.CameraPosition
+import com.google.android.gms.maps.model.Circle
+import com.google.android.gms.maps.model.CircleOptions
 import com.google.android.gms.maps.model.LatLng
 import com.google.android.gms.maps.model.Marker
 import com.google.android.gms.maps.model.MarkerOptions
+import com.google.android.material.slider.Slider
 import java.io.File
 import java.util.Locale
 import java.util.Random
@@ -68,14 +73,17 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         private const val PREFS_NAME = "narik_state"
         private const val EARTH_RADIUS_M = 6_371_000.0
         private const val METERS_PER_DEG_LAT = 111_320.0
+
+        private const val DOT_COLOR_GRB = 0xFFEA4335.toInt()
+        private const val DOT_COLOR_GJK = 0xFF34A853.toInt()
     }
 
     /** Konfigurasi jitter per channel. */
     private class JitterConfig {
         var enabled = true
-        var stepMeters = 5f
-        var intervalSec = 3L
-        var radiusMeters = 50f
+        var stepMeters = 1f      // 0.1 .. 3.0
+        var maxDistMeters = 3f   // "batas langkah" 0.1 .. 3.0 (radius dari pusat)
+        var intervalSec = 3L     // 1 .. 5
     }
 
     private lateinit var fusedLocationClient: FusedLocationProviderClient
@@ -120,14 +128,19 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private var secretTapCount = 0
     private var lastSecretTapAt = 0L
 
+    // Marker pusat (STATIS), titik jitter (bergerak), lingkaran radius
     private var grbMarker: Marker? = null
     private var gjkMarker: Marker? = null
+    private var grbDot: Marker? = null
+    private var gjkDot: Marker? = null
+    private var grbRadiusCircle: Circle? = null
+    private var gjkRadiusCircle: Circle? = null
+
     private var grbPlaying = false
     private var gjkPlaying = false
     private var showGrbChip = true
     private var showGjkChip = true
 
-    // Konfigurasi fleksibel per channel
     private var grbTarget = HookContract.DEFAULT_TARGET_GRB
     private var gjkTarget = HookContract.DEFAULT_TARGET_GJK
     private var grbMethods = 0L
@@ -188,19 +201,16 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         valMethodGjk = findViewById(R.id.val_method_gjk)
         keepOverlaysClearOfSystemBars()
 
-        // Muat konfigurasi tersimpan
         grbTarget = statePrefs.getString("grb_target", grbTarget) ?: grbTarget
         gjkTarget = statePrefs.getString("gjk_target", gjkTarget) ?: gjkTarget
         grbMethods = statePrefs.getLong("grb_methods", 0L)
         gjkMethods = statePrefs.getLong("gjk_methods", 0L)
         loadJitterConfigs()
 
-        // Kanan bawah
         findViewById<View>(R.id.btn_autofocus).setOnClickListener { onAutofocusTapped() }
         findViewById<View>(R.id.btn_zoom_in).setOnClickListener { zoomToMax() }
         findViewById<View>(R.id.btn_zoom_out).setOnClickListener { zoomOut() }
 
-        // Kiri bawah : GRB, GJK, Favorite, Jitter
         btnGrb.setOnClickListener { toggleGrb() }
         btnGjk.setOnClickListener { toggleGjk() }
         updateServiceButtonUi(btnGrb, badgeGrb, false)
@@ -209,7 +219,11 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         btnJitter.setOnClickListener { showJitterDialog() }
 
         imgCenterPin.setOnClickListener { onPinTapped() }
-        chipCoords.setOnClickListener { toggleCoordsChip() }
+
+        // Chip pin: TANPA aksi. Chip GRB/GJK: kamera terbang ke markernya.
+        chipGrb.setOnClickListener { flyToServiceMarker("grb") }
+        chipGjk.setOnClickListener { flyToServiceMarker("gjk") }
+
         btnSecret.setOnClickListener { toggleMenuPanel() }
 
         tabChip.setOnClickListener { switchTab(set = false) }
@@ -313,12 +327,21 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         chipGjk.isVisible = showGjkChip && gjkMarker != null
     }
 
+    /** Chip menampilkan posisi live yang di-spoof (titik jitter / pusat). */
     private fun updateGrbChipText() {
-        grbMarker?.position?.let { chipGrb.text = formatLatLng(it) }
+        val pos = grbDot?.position ?: grbMarker?.position ?: return
+        chipGrb.text = formatLatLng(pos)
     }
 
     private fun updateGjkChipText() {
-        gjkMarker?.position?.let { chipGjk.text = formatLatLng(it) }
+        val pos = gjkDot?.position ?: gjkMarker?.position ?: return
+        chipGjk.text = formatLatLng(pos)
+    }
+
+    /** Tap chip GRB/GJK: kamera terbang ke koordinat marker (pusat). */
+    private fun flyToServiceMarker(channel: String) {
+        val pos = markerFor(channel)?.position ?: return
+        map?.animateCamera(CameraUpdateFactory.newLatLng(pos))
     }
 
     // -------------------------------------------------- menu rahasia (7x tap)
@@ -379,6 +402,18 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     private fun markerFor(channel: String): Marker? =
         if (channel == "grb") grbMarker else gjkMarker
+
+    private fun dotFor(channel: String): Marker? =
+        if (channel == "grb") grbDot else gjkDot
+
+    private fun circleFor(channel: String): Circle? =
+        if (channel == "grb") grbRadiusCircle else gjkRadiusCircle
+
+    private fun centerFor(channel: String): LatLng? =
+        if (channel == "grb") grbJitterCenter else gjkJitterCenter
+
+    private fun cfgFor(channel: String): JitterConfig =
+        if (channel == "grb") jitterGrb else jitterGjk
 
     private fun refreshSetLabels() {
         valTargetGrb.text = grbTarget
@@ -456,10 +491,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
         if (old != pkg) {
             sendStateTo(old, channel, false, null, methodsFor(channel))
-            sendStateTo(
-                pkg, channel, playingFor(channel),
-                markerFor(channel)?.position, methodsFor(channel)
-            )
+            pushCurrentPosition(channel)
             Toast.makeText(this, R.string.toast_target_saved, Toast.LENGTH_LONG).show()
         }
         refreshSetLabels()
@@ -484,10 +516,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private fun applyMethods(channel: String, mask: Long) {
         statePrefs.edit().putLong("${channel}_methods", mask).apply()
         if (channel == "grb") grbMethods = mask else gjkMethods = mask
-        sendStateTo(
-            currentTarget(channel), channel, playingFor(channel),
-            markerFor(channel)?.position, mask
-        )
+        pushCurrentPosition(channel)
         refreshSetLabels()
     }
 
@@ -503,14 +532,25 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     private fun loadJitterConfigs() {
         for (ch in listOf("grb", "gjk")) {
-            val cfg = if (ch == "grb") jitterGrb else jitterGjk
+            val cfg = cfgFor(ch)
             cfg.enabled = statePrefs.getBoolean("${ch}_jitter_enabled", true)
-            cfg.stepMeters = statePrefs.getFloat("${ch}_jitter_step", 5f)
-            cfg.intervalSec = statePrefs.getLong("${ch}_jitter_interval", 3L)
-            cfg.radiusMeters = statePrefs.getFloat("${ch}_jitter_radius", 50f)
+            cfg.stepMeters = statePrefs.getFloat("${ch}_jitter_step", 1f).coerceIn(0.1f, 3f)
+            cfg.maxDistMeters = statePrefs.getFloat("${ch}_jitter_radius", 3f).coerceIn(0.1f, 3f)
+            cfg.intervalSec = statePrefs.getLong("${ch}_jitter_interval", 3L).coerceIn(1L, 5L)
         }
     }
 
+    private fun persistJitter(channel: String) {
+        val cfg = cfgFor(channel)
+        statePrefs.edit()
+            .putBoolean("${channel}_jitter_enabled", cfg.enabled)
+            .putFloat("${channel}_jitter_step", cfg.stepMeters)
+            .putLong("${channel}_jitter_interval", cfg.intervalSec)
+            .putFloat("${channel}_jitter_radius", cfg.maxDistMeters)
+            .apply()
+    }
+
+    /** Dialog jitter: slider live, tanpa tombol — perubahan langsung aktif. */
     private fun showJitterDialog() {
         val view = layoutInflater.inflate(R.layout.dialog_jitter, null)
 
@@ -518,36 +558,81 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         val tabGjk = view.findViewById<TextView>(R.id.tab_jitter_gjk)
         val pageGrb = view.findViewById<View>(R.id.page_jitter_grb)
         val pageGjk = view.findViewById<View>(R.id.page_jitter_gjk)
-        val toggleGrb = view.findViewById<TextView>(R.id.toggle_jitter_grb)
-        val toggleGjk = view.findViewById<TextView>(R.id.toggle_jitter_gjk)
-        val inStepGrb = view.findViewById<EditText>(R.id.input_step_grb)
-        val inIntGrb = view.findViewById<EditText>(R.id.input_interval_grb)
-        val inRadGrb = view.findViewById<EditText>(R.id.input_radius_grb)
-        val inStepGjk = view.findViewById<EditText>(R.id.input_step_gjk)
-        val inIntGjk = view.findViewById<EditText>(R.id.input_interval_gjk)
-        val inRadGjk = view.findViewById<EditText>(R.id.input_radius_gjk)
 
-        fun cfgOf(ch: String) = if (ch == "grb") jitterGrb else jitterGjk
+        fun fmt1(v: Float): String = String.format(Locale.US, "%.1f", v)
 
-        fun refreshToggle(ch: String) {
-            val t = if (ch == "grb") toggleGrb else toggleGjk
-            t.text = getString(
-                R.string.jitter_enabled, if (cfgOf(ch).enabled) "AKTIF" else "MATI"
+        fun bindChannel(ch: String) {
+            val cfg = cfgFor(ch)
+            val suffix = if (ch == "grb") "_grb" else "_gjk"
+
+            val toggle = view.findViewById<TextView>(
+                resources.getIdentifier("toggle_jitter$suffix", "id", packageName)
             )
+            val lblStep = view.findViewById<TextView>(
+                resources.getIdentifier("label_step$suffix", "id", packageName)
+            )
+            val lblMax = view.findViewById<TextView>(
+                resources.getIdentifier("label_maxdist$suffix", "id", packageName)
+            )
+            val lblInt = view.findViewById<TextView>(
+                resources.getIdentifier("label_interval$suffix", "id", packageName)
+            )
+            val slStep = view.findViewById<Slider>(
+                resources.getIdentifier("slider_step$suffix", "id", packageName)
+            )
+            val slMax = view.findViewById<Slider>(
+                resources.getIdentifier("slider_maxdist$suffix", "id", packageName)
+            )
+            val slInt = view.findViewById<Slider>(
+                resources.getIdentifier("slider_interval$suffix", "id", packageName)
+            )
+
+            fun refreshLabels() {
+                lblStep.text = getString(R.string.jitter_step_label, fmt1(cfg.stepMeters))
+                lblMax.text = getString(R.string.jitter_maxdist_label, fmt1(cfg.maxDistMeters))
+                lblInt.text = getString(
+                    R.string.jitter_interval_label, cfg.intervalSec.toString()
+                )
+                toggle.text = getString(
+                    R.string.jitter_enabled, if (cfg.enabled) "AKTIF" else "MATI"
+                )
+            }
+
+            slStep.value = cfg.stepMeters.coerceIn(0.1f, 3f)
+            slMax.value = cfg.maxDistMeters.coerceIn(0.1f, 3f)
+            slInt.value = cfg.intervalSec.coerceIn(1f, 5f)
+            refreshLabels()
+
+            toggle.setOnClickListener {
+                cfg.enabled = !cfg.enabled
+                persistJitter(ch)
+                refreshLabels()
+                syncJitterRuntime(ch)
+            }
+
+            slStep.addOnChangeListener { _, value, _ ->
+                cfg.stepMeters = value
+                persistJitter(ch)
+                refreshLabels()
+            }
+
+            slMax.addOnChangeListener { _, value, _ ->
+                cfg.maxDistMeters = value
+                persistJitter(ch)
+                refreshLabels()
+                // Lingkaran radius ter-update live
+                circleFor(ch)?.radius = value.toDouble()
+            }
+
+            slInt.addOnChangeListener { _, value, _ ->
+                cfg.intervalSec = value.toLong()
+                persistJitter(ch)
+                refreshLabels()
+            }
         }
 
-        fun populate(ch: String) {
-            val cfg = cfgOf(ch)
-            val step = if (ch == "grb") inStepGrb else inStepGjk
-            val interval = if (ch == "grb") inIntGrb else inIntGjk
-            val radius = if (ch == "grb") inRadGrb else inRadGjk
-            step.setText(cfg.stepMeters.toString())
-            interval.setText(cfg.intervalSec.toString())
-            radius.setText(cfg.radiusMeters.toString())
-            refreshToggle(ch)
-        }
-        populate("grb")
-        populate("gjk")
+        bindChannel("grb")
+        bindChannel("gjk")
 
         fun switchTab(ch: String) {
             pageGrb.isVisible = ch == "grb"
@@ -559,59 +644,19 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         tabGjk.setOnClickListener { switchTab("gjk") }
         switchTab("grb")
 
-        toggleGrb.setOnClickListener {
-            jitterGrb.enabled = !jitterGrb.enabled; refreshToggle("grb")
-        }
-        toggleGjk.setOnClickListener {
-            jitterGjk.enabled = !jitterGjk.enabled; refreshToggle("gjk")
-        }
-
         AlertDialog.Builder(this)
             .setTitle(R.string.jitter_title)
             .setView(view)
-            .setPositiveButton(R.string.jitter_save) { _, _ ->
-                applyJitterEdit("grb", inStepGrb, inIntGrb, inRadGrb)
-                applyJitterEdit("gjk", inStepGjk, inIntGjk, inRadGjk)
-            }
-            .setNegativeButton(R.string.jitter_cancel, null)
-            .show()
-    }
-
-    private fun applyJitterEdit(
-        channel: String,
-        step: EditText,
-        interval: EditText,
-        radius: EditText
-    ) {
-        val cfg = if (channel == "grb") jitterGrb else jitterGjk
-        cfg.stepMeters = (step.text.toString().toFloatOrNull() ?: cfg.stepMeters)
-            .coerceIn(1f, 500f)
-        cfg.intervalSec = (interval.text.toString().toLongOrNull() ?: cfg.intervalSec)
-            .coerceIn(1L, 3600L)
-        cfg.radiusMeters = (radius.text.toString().toFloatOrNull() ?: cfg.radiusMeters)
-            .coerceIn(5f, 5000f)
-
-        statePrefs.edit()
-            .putBoolean("${channel}_jitter_enabled", cfg.enabled)
-            .putFloat("${channel}_jitter_step", cfg.stepMeters)
-            .putLong("${channel}_jitter_interval", cfg.intervalSec)
-            .putFloat("${channel}_jitter_radius", cfg.radiusMeters)
-            .apply()
-
-        // Terapkan live bila channel sedang play
-        if (playingFor(channel)) {
-            if (cfg.enabled) startJitter(channel) else stopJitter(channel)
-        }
+            .show() // tanpa tombol: ditutup dengan tap di luar / back
     }
 
     // ---------------------------------------------------- mesin jitter
 
     private fun startJitter(channel: String) {
-        val cfg = if (channel == "grb") jitterGrb else jitterGjk
+        val cfg = cfgFor(channel)
         val running = if (channel == "grb") grbJitterRunning else gjkJitterRunning
         if (!cfg.enabled || running) return
-        val center = if (channel == "grb") grbJitterCenter else gjkJitterCenter
-        if (center == null) return
+        if (centerFor(channel) == null) return
         if (channel == "grb") grbJitterRunning = true else gjkJitterRunning = true
         jitterHandler.postDelayed({ jitterTick(channel) }, cfg.intervalSec * 1000)
     }
@@ -620,42 +665,92 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         if (channel == "grb") grbJitterRunning = false else gjkJitterRunning = false
     }
 
+    /** Sinkronkan runtime jitter setelah konfigurasi berubah. */
+    private fun syncJitterRuntime(channel: String) {
+        val cfg = cfgFor(channel)
+        if (playingFor(channel) && cfg.enabled) {
+            ensureJitterVisuals(channel)
+            startJitter(channel)
+        } else {
+            stopJitter(channel)
+            clearJitterVisuals(channel)
+            if (playingFor(channel)) pushCurrentPosition(channel) // spoof diam di pusat
+        }
+    }
+
+    private fun ensureJitterVisuals(channel: String) {
+        val googleMap = map ?: return
+        val center = centerFor(channel) ?: return
+        val cfg = cfgFor(channel)
+
+        if (dotFor(channel) == null) {
+            val color = if (channel == "grb") DOT_COLOR_GRB else DOT_COLOR_GJK
+            val dot = googleMap.addMarker(
+                MarkerOptions()
+                    .position(center)
+                    .icon(dotIcon(color))
+                    .anchor(0.5f, 0.5f)
+                    .zIndex(4f)
+            )
+            if (channel == "grb") grbDot = dot else gjkDot = dot
+        }
+        if (circleFor(channel) == null) {
+            val circle = googleMap.addCircle(
+                CircleOptions()
+                    .center(center)
+                    .radius(cfg.maxDistMeters.toDouble())
+                    .strokeWidth(2f)
+                    .strokeColor(0xCC1A73E8.toInt())
+                    .fillColor(0x1A1A73E8.toInt())
+                    .clickable(false)
+                    .zIndex(1f)
+            )
+            if (channel == "grb") grbRadiusCircle = circle else gjkRadiusCircle = circle
+        }
+    }
+
+    private fun clearJitterVisuals(channel: String) {
+        if (channel == "grb") {
+            grbDot?.remove(); grbDot = null
+            grbRadiusCircle?.remove(); grbRadiusCircle = null
+        } else {
+            gjkDot?.remove(); gjkDot = null
+            gjkRadiusCircle?.remove(); gjkRadiusCircle = null
+        }
+    }
+
     /**
-     * Satu langkah random walk: arah & jarak acak (≤ langkah maks) dari
-     * posisi marker; bila hasil keluar radius, dijepit ke tepi radius
-     * dengan pusat = koordinat marker saat play. Posisi baru di-push ke
-     * target lewat broadcast.
+     * Satu langkah random walk: titik kecil bergerak acak (≤ langkah) dari
+     * posisinya; bila keluar batas langkah (radius dari pusat), dijepit ke
+     * tepi. Marker pusat TIDAK bergerak. Posisi titik = posisi spoof.
      */
     private fun jitterTick(channel: String) {
         val running = if (channel == "grb") grbJitterRunning else gjkJitterRunning
         if (!running) return
-        val cfg = if (channel == "grb") jitterGrb else jitterGjk
-        val marker = if (channel == "grb") grbMarker else gjkMarker
-        val center = if (channel == "grb") grbJitterCenter else gjkJitterCenter
-        val m = marker ?: return
-        val c = center ?: return
+        val cfg = cfgFor(channel)
+        val dot = dotFor(channel) ?: return
+        val center = centerFor(channel) ?: return
 
-        val cur = m.position
+        val cur = dot.position
         val dist = random.nextDouble() * cfg.stepMeters
         val bearing = Math.toRadians(random.nextDouble() * 360.0)
         val dLat = dist * Math.cos(bearing) / METERS_PER_DEG_LAT
         val dLng = dist * Math.sin(bearing) /
-            (METERS_PER_DEG_LAT * Math.cos(Math.toRadians(c.latitude)))
+            (METERS_PER_DEG_LAT * Math.cos(Math.toRadians(center.latitude)))
         var nLat = cur.latitude + dLat
         var nLng = cur.longitude + dLng
 
-        val fromCenter = haversineMeters(c, nLat, nLng)
-        if (fromCenter > cfg.radiusMeters && fromCenter > 0.0) {
-            val scale = cfg.radiusMeters / fromCenter
-            nLat = c.latitude + (nLat - c.latitude) * scale
-            nLng = c.longitude + (nLng - c.longitude) * scale
+        val fromCenter = haversineMeters(center, nLat, nLng)
+        if (fromCenter > cfg.maxDistMeters && fromCenter > 0.0) {
+            val scale = cfg.maxDistMeters / fromCenter
+            nLat = center.latitude + (nLat - center.latitude) * scale
+            nLng = center.longitude + (nLng - center.longitude) * scale
         }
 
         val newPos = LatLng(nLat, nLng)
-        m.position = newPos
+        dot.position = newPos
         if (channel == "grb") updateGrbChipText() else updateGjkChipText()
 
-        // Persist + push posisi baru ke proses target
         statePrefs.edit()
             .putString("${channel}_lat", newPos.latitude.toString())
             .putString("${channel}_lng", newPos.longitude.toString())
@@ -685,18 +780,19 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             updateGrbChipText()
             persistServiceState("grb", true, pos)
             grbJitterCenter = pos
-            startJitter("grb")
+            if (jitterGrb.enabled) {
+                ensureJitterVisuals("grb")
+                startJitter("grb")
+            }
         } else {
             stopJitter("grb")
+            clearJitterVisuals("grb")
             grbMarker?.remove()
             grbMarker = null
             grbJitterCenter = null
             persistServiceState("grb", false, null)
         }
-        sendStateTo(
-            currentTarget("grb"), "grb", grbPlaying,
-            grbMarker?.position, grbMethods
-        )
+        pushCurrentPosition("grb")
         refreshGrbChip()
         updateServiceButtonUi(btnGrb, badgeGrb, grbPlaying)
     }
@@ -710,18 +806,19 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             updateGjkChipText()
             persistServiceState("gjk", true, pos)
             gjkJitterCenter = pos
-            startJitter("gjk")
+            if (jitterGjk.enabled) {
+                ensureJitterVisuals("gjk")
+                startJitter("gjk")
+            }
         } else {
             stopJitter("gjk")
+            clearJitterVisuals("gjk")
             gjkMarker?.remove()
             gjkMarker = null
             gjkJitterCenter = null
             persistServiceState("gjk", false, null)
         }
-        sendStateTo(
-            currentTarget("gjk"), "gjk", gjkPlaying,
-            gjkMarker?.position, gjkMethods
-        )
+        pushCurrentPosition("gjk")
         refreshGjkChip()
         updateServiceButtonUi(btnGjk, badgeGjk, gjkPlaying)
     }
@@ -735,6 +832,12 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 .zIndex(3f)
         )
 
+    private fun pushCurrentPosition(channel: String) {
+        if (!playingFor(channel)) return
+        val pos = dotFor(channel)?.position ?: markerFor(channel)?.position ?: return
+        sendStateTo(currentTarget(channel), channel, true, pos, methodsFor(channel))
+    }
+
     private fun restoreServiceStates() {
         val googleMap = map ?: return
 
@@ -742,30 +845,38 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             grbPlaying = true
             val lat = statePrefs.getString("grb_lat", null)?.toDoubleOrNull()
             val lng = statePrefs.getString("grb_lng", null)?.toDoubleOrNull()
-            if (lat != null && lng != null) {
-                grbMarker = addServiceMarker(R.drawable.ic_marker_grb, LatLng(lat, lng))
+            val pos = if (lat != null && lng != null) LatLng(lat, lng) else null
+            if (pos != null) {
+                grbMarker = addServiceMarker(R.drawable.ic_marker_grb, pos)
             }
             updateGrbChipText()
             refreshGrbChip()
             updateServiceButtonUi(btnGrb, badgeGrb, true)
             grbJitterCenter = grbMarker?.position
-            startJitter("grb")
-            sendStateTo(grbTarget, "grb", true, grbMarker?.position, grbMethods)
+            if (jitterGrb.enabled) {
+                ensureJitterVisuals("grb")
+                startJitter("grb")
+            }
+            pushCurrentPosition("grb")
         }
 
         if (statePrefs.getBoolean("gjk_play", false)) {
             gjkPlaying = true
             val lat = statePrefs.getString("gjk_lat", null)?.toDoubleOrNull()
             val lng = statePrefs.getString("gjk_lng", null)?.toDoubleOrNull()
-            if (lat != null && lng != null) {
-                gjkMarker = addServiceMarker(R.drawable.ic_marker_gjk, LatLng(lat, lng))
+            val pos = if (lat != null && lng != null) LatLng(lat, lng) else null
+            if (pos != null) {
+                gjkMarker = addServiceMarker(R.drawable.ic_marker_gjk, pos)
             }
             updateGjkChipText()
             refreshGjkChip()
             updateServiceButtonUi(btnGjk, badgeGjk, true)
             gjkJitterCenter = gjkMarker?.position
-            startJitter("gjk")
-            sendStateTo(gjkTarget, "gjk", true, gjkMarker?.position, gjkMethods)
+            if (jitterGjk.enabled) {
+                ensureJitterVisuals("gjk")
+                startJitter("gjk")
+            }
+            pushCurrentPosition("gjk")
         }
     }
 
@@ -813,7 +924,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         }
     }
 
-    // ------------------------------------------------- scaling icon marker
+    // ------------------------------------------------- ikon marker & titik
 
     private fun markerIconAtPinSize(drawableRes: Int): BitmapDescriptor {
         val density = resources.displayMetrics.density
@@ -838,6 +949,21 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         Canvas(padded).drawBitmap(scaled, 0f, 0f, null)
 
         return BitmapDescriptorFactory.fromBitmap(padded)
+    }
+
+    /** Titik kecil bulat (10dp) untuk jitter, anchor tengah. */
+    private fun dotIcon(color: Int): BitmapDescriptor {
+        val density = resources.displayMetrics.density
+        val size = (10 * density).toInt().coerceAtLeast(8)
+        val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color }
+        canvas.drawCircle(size / 2f, size / 2f, size / 2f, paint)
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = 1.5f * density
+        paint.color = Color.WHITE
+        canvas.drawCircle(size / 2f, size / 2f, size / 2f - paint.strokeWidth / 2f, paint)
+        return BitmapDescriptorFactory.fromBitmap(bmp)
     }
 
     /** Wujud tombol sesuai state. */
