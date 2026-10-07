@@ -310,7 +310,8 @@
                                 android:textSize="14sp" />
                         </LinearLayout>
                         
-<<LinearLayout
+            <!-- Triger GRB -->
+            <LinearLayout
                 android:id="@+id/row_trigger_grb"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -333,9 +334,9 @@
                     android:textColor="#202124"
                     android:textSize="14sp" />
             </LinearLayout>
-            
-            
-<LinearLayout
+
+            <!-- Triger GJK -->
+            <LinearLayout
                 android:id="@+id/row_trigger_gjk"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
