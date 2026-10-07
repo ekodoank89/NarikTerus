@@ -24,7 +24,6 @@
     <string name="toast_target_saved">Target disimpan. Centang paket ini di LSPosed → Scope, lalu force-stop aplikasinya.</string>
     <string name="btn_favorite">Favorite</string>
     <string name="btn_jitter">Pengaturan Jitter</string>
-    <string name="favorite_coming_soon">Coming soon</string>
     <string name="jitter_title">Jitter</string>
     <string name="jitter_tab_grb">GRB</string>
     <string name="jitter_tab_gjk">GJK</string>
@@ -32,4 +31,20 @@
     <string name="jitter_maxdist_label">Batas langkah: %1$s m</string>
     <string name="jitter_interval_label">Interval: %1$s detik</string>
     <string name="jitter_default">Default</string>
+    <string name="fav_title">Favorite</string>
+    <string name="fav_from_pin">DARI PIN</string>
+    <string name="fav_manual">MANUAL</string>
+    <string name="fav_name_hint">Nama favorite</string>
+    <string name="fav_pin_coord">Koordinat pin: %1$s</string>
+    <string name="fav_lat_hint">Koordinat latitude</string>
+    <string name="fav_lng_hint">Koordinat longitude</string>
+    <string name="fav_save">Simpan</string>
+    <string name="fav_update">Update</string>
+    <string name="fav_list_label">List Favorite</string>
+    <string name="fav_empty">Belum ada favorite</string>
+    <string name="fav_edit">Edit favorite</string>
+    <string name="fav_delete">Hapus favorite</string>
+    <string name="fav_delete_title">Hapus favorite</string>
+    <string name="fav_delete_confirm">Hapus \"%1$s\"?</string>
+    <string name="fav_delete_yes">Hapus</string>
 </resources>
