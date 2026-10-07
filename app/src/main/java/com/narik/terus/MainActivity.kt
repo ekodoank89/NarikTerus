@@ -131,6 +131,9 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private var secretTapCount = 0
     private var lastSecretTapAt = 0L
 
+    /** true = kamera sudah dipulihkan dari prefs -> jangan pindah ke titik biru. */
+    private var cameraRestored = false
+
     // Marker pusat (STATIS), titik jitter (bergerak), lingkaran radius
     private var grbMarker: Marker? = null
     private var gjkMarker: Marker? = null
@@ -210,6 +213,11 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         gjkMethods = statePrefs.getLong("gjk_methods", 0L)
         loadJitterConfigs()
 
+        // Pulihkan state chip (AKTIF/MATI) dari sesi terakhir
+        chipCoords.isVisible = statePrefs.getBoolean("chip_pin_visible", true)
+        showGrbChip = statePrefs.getBoolean("chip_grb_visible", true)
+        showGjkChip = statePrefs.getBoolean("chip_gjk_visible", true)
+
         findViewById<View>(R.id.btn_autofocus).setOnClickListener { onAutofocusTapped() }
         findViewById<View>(R.id.btn_zoom_in).setOnClickListener { zoomToMax() }
         findViewById<View>(R.id.btn_zoom_out).setOnClickListener { zoomOut() }
@@ -234,13 +242,19 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         switchTab(set = false)
 
         menuRowChipPin.setOnClickListener {
-            toggleCoordsChip(); refreshMenuLabels()
+            toggleCoordsChip(); persistChipStates(); refreshMenuLabels()
         }
         menuRowChipGrb.setOnClickListener {
-            showGrbChip = !showGrbChip; refreshGrbChip(); refreshMenuLabels()
+            showGrbChip = !showGrbChip
+            persistChipStates()
+            refreshGrbChip()
+            refreshMenuLabels()
         }
         menuRowChipGjk.setOnClickListener {
-            showGjkChip = !showGjkChip; refreshGjkChip(); refreshMenuLabels()
+            showGjkChip = !showGjkChip
+            persistChipStates()
+            refreshGjkChip()
+            refreshMenuLabels()
         }
 
         rowTargetGrb.setOnClickListener { showAppPicker("grb") }
@@ -285,12 +299,18 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             isTiltGesturesEnabled = true
         }
 
+        // Pulihkan posisi kamera terakhir SEBELUM apa pun gerakan kamera lain
+        restoreCamera(googleMap)
+
         updateCompass(googleMap.cameraPosition.bearing)
         googleMap.setOnCameraMoveListener {
             updateCompass(googleMap.cameraPosition.bearing)
             updateCoordsChip()
         }
-        googleMap.setOnCameraIdleListener { updateCoordsChip() }
+        googleMap.setOnCameraIdleListener {
+            updateCoordsChip()
+            persistCamera() // simpan posisi kamera setiap kamera berhenti
+        }
         googleMap.setOnCameraMoveStartedListener { reason ->
             if (reason == GoogleMap.OnCameraMoveStartedListener.REASON_GESTURE) {
                 followMode = false
@@ -298,12 +318,53 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             }
         }
 
+        // Pulihkan play/stop: play -> marker dibuat ulang di posisi terakhir,
+        // stop -> tidak ada marker (sesuai state tersimpan).
         restoreServiceStates()
         if (hasLocationPermission()) enableMyLocation()
     }
 
     private fun updateCompass(bearing: Float) {
         imgCompass.rotation = -bearing
+    }
+
+    // --------------------------------------------------- persistensi kamera
+
+    private fun restoreCamera(gm: GoogleMap) {
+        val lat = statePrefs.getString("cam_lat", null)?.toDoubleOrNull()
+        val lng = statePrefs.getString("cam_lng", null)?.toDoubleOrNull()
+        val zoom = statePrefs.getFloat("cam_zoom", -1f)
+        if (lat == null || lng == null || zoom < 0f) return // pertama kali jalan
+        val bearing = statePrefs.getFloat("cam_bearing", 0f)
+        val tilt = statePrefs.getFloat("cam_tilt", 0f)
+        gm.moveCamera(
+            CameraUpdateFactory.newCameraPosition(
+                CameraPosition(LatLng(lat, lng), zoom, tilt, bearing)
+            )
+        )
+        cameraRestored = true
+        chipActive = true // chip langsung menampilkan koordinat terakhir
+    }
+
+    private fun persistCamera() {
+        val cp = map?.cameraPosition ?: return
+        statePrefs.edit()
+            .putString("cam_lat", cp.target.latitude.toString())
+            .putString("cam_lng", cp.target.longitude.toString())
+            .putFloat("cam_zoom", cp.zoom)
+            .putFloat("cam_bearing", cp.bearing)
+            .putFloat("cam_tilt", cp.tilt)
+            .apply()
+    }
+
+    // ----------------------------------------------------- persistensi chip
+
+    private fun persistChipStates() {
+        statePrefs.edit()
+            .putBoolean("chip_pin_visible", chipCoords.isVisible)
+            .putBoolean("chip_grb_visible", showGrbChip)
+            .putBoolean("chip_gjk_visible", showGjkChip)
+            .apply()
     }
 
     // ------------------------------------------------------- chip koordinat
@@ -561,10 +622,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         statePrefs.edit().putString("favorites_$channel", arr.toString()).apply()
     }
 
-    /**
-     * Cari favorite dengan koordinat sama (6 desimal), -1 jika tidak ada.
-     * excludeIndex: indeks yang sedang diedit agar tidak menganggap dirinya duplikat.
-     */
     private fun findDuplicateCoordIndex(
         favs: List<Favorite>,
         lat: Double,
@@ -582,7 +639,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         return -1
     }
 
-     private fun showFavoriteDialog() {
+    private fun showFavoriteDialog() {
         val view = layoutInflater.inflate(R.layout.dialog_favorite, null)
 
         val tabGrb = view.findViewById<TextView>(R.id.tab_fav_grb)
@@ -615,13 +672,11 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
             var editingIndex: Int? = null
 
-            // Koordinat pin saat dialog dibuka (modal -> tidak berubah selama terbuka)
             val pinCoord = map?.cameraPosition?.target
             tvCoord.text = getString(
                 R.string.fav_pin_coord, pinCoord?.let { formatLatLng(it) } ?: "-"
             )
 
-            /** Dialog info koordinat duplikat. */
             fun showDuplicateInfo(dupPosText: String, dupName: String) {
                 AlertDialog.Builder(this)
                     .setTitle(R.string.fav_duplicate_title)
@@ -630,7 +685,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                     .show()
             }
 
-            /** Akordeon: hanya SATU sub menu terbuka. null = semua tertutup. */
             fun setActiveSection(which: String?) {
                 contentPin.isVisible = which == "pin"
                 contentManual.isVisible = which == "manual"
@@ -668,7 +722,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 emptyView.isVisible = favs.isEmpty()
                 favs.forEachIndexed { index, f ->
 
-                    // Separator antar baris (tanpa garis setelah item terakhir)
                     if (index > 0) {
                         val divider = View(this)
                         divider.layoutParams = LinearLayout.LayoutParams(
@@ -683,19 +736,17 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                     row.findViewById<TextView>(R.id.fav_coords).text =
                         formatLatLng(LatLng(f.lat, f.lng))
 
-                    // Tap nama = pindahkan pin ke koordinat favorite,
-                    // tutup menu, lalu PLAY channel di titik itu.
+                    // Tap nama = pin pindah ke koordinat favorite + play
                     row.findViewById<View>(R.id.fav_row_click).setOnClickListener {
                         val pos = LatLng(f.lat, f.lng)
                         map?.animateCamera(CameraUpdateFactory.newLatLng(pos))
-                        chipActive = true      // chip langsung menampilkan koordinat
-                        followMode = false     // play di titik statis, bukan ikut titik biru
+                        chipActive = true
+                        followMode = false
                         if (playingFor(ch)) stopChannel(ch)
-                        startChannel(ch, pos)  // selalu play di koordinat favorite
+                        startChannel(ch, pos)
                         dlg?.dismiss()
                     }
 
-                    // Edit: isi MANUAL + buka MANUAL (tutup DARI PIN) + tombol Update
                     row.findViewById<View>(R.id.btn_edit_fav).setOnClickListener {
                         inputNameManual.setText(f.name)
                         inputLat.setText(f.lat.toString())
@@ -706,7 +757,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                         refreshButtons()
                     }
 
-                    // Hapus: dialog konfirmasi dulu
                     row.findViewById<View>(R.id.btn_delete_fav).setOnClickListener {
                         AlertDialog.Builder(this)
                             .setTitle(R.string.fav_delete_title)
@@ -728,7 +778,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 }
             }
 
-            // Akordeon
             headerPin.setOnClickListener {
                 setActiveSection(if (contentPin.isVisible) null else "pin")
             }
@@ -741,7 +790,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             inputLat.addTextChangedListener(textWatcher { refreshButtons() })
             inputLng.addTextChangedListener(textWatcher { refreshButtons() })
 
-            // Simpan DARI PIN (+ cross cek duplikat koordinat)
             btnSavePin.setOnClickListener {
                 val name = inputNamePin.text.toString().trim()
                 val pos = map?.cameraPosition?.target ?: return@setOnClickListener
@@ -755,11 +803,10 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 cur.add(Favorite(name, pos.latitude, pos.longitude))
                 persistFavorites(ch, cur)
                 clearPinInputs()
-                setActiveSection(null) // auto-hide setelah simpan
+                setActiveSection(null)
                 refreshList()
             }
 
-            // Simpan / Update MANUAL (+ cross cek duplikat koordinat)
             btnSaveManual.setOnClickListener {
                 val name = inputNameManual.text.toString().trim()
                 val lat = inputLat.text.toString().trim().toDoubleOrNull()
@@ -767,7 +814,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 if (name.isEmpty() || lat == null || lng == null) return@setOnClickListener
                 val cur = loadFavorites(ch)
                 val editing = editingIndex
-                // Update: item yang diedit dikecualikan dari cek duplikat
                 val dup = findDuplicateCoordIndex(cur, lat, lng, editing)
                 if (dup >= 0) {
                     showDuplicateInfo(
@@ -783,7 +829,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 persistFavorites(ch, cur)
                 clearManualInputs()
                 resetManualToSave()
-                setActiveSection(null) // auto-hide setelah simpan/update
+                setActiveSection(null)
                 refreshList()
             }
 
@@ -800,15 +846,17 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             styleTab(tabGrb, ch == "grb")
             styleTab(tabGjk, ch == "gjk")
 
-            // Ganti tab = sembunyikan isi DARI PIN & MANUAL di kedua halaman
             view.findViewById<View>(R.id.content_pin_grb).isVisible = false
             view.findViewById<View>(R.id.content_manual_grb).isVisible = false
             view.findViewById<View>(R.id.content_pin_gjk).isVisible = false
             view.findViewById<View>(R.id.content_manual_gjk).isVisible = false
+
+            // Ingat tab terakhir
+            statePrefs.edit().putString("last_fav_tab", ch).apply()
         }
         tabGrb.setOnClickListener { switchFavTab("grb") }
         tabGjk.setOnClickListener { switchFavTab("gjk") }
-        switchFavTab("grb")
+        switchFavTab(statePrefs.getString("last_fav_tab", "grb") ?: "grb")
 
         dlg = AlertDialog.Builder(this)
             .setTitle(R.string.fav_title)
@@ -923,10 +971,13 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             pageGjk.isVisible = ch == "gjk"
             styleTab(tabGrb, ch == "grb")
             styleTab(tabGjk, ch == "gjk")
+
+            // Ingat tab terakhir
+            statePrefs.edit().putString("last_jitter_tab", ch).apply()
         }
         tabGrb.setOnClickListener { switchTab("grb") }
         tabGjk.setOnClickListener { switchTab("gjk") }
-        switchTab("grb")
+        switchTab(statePrefs.getString("last_jitter_tab", "grb") ?: "grb")
 
         AlertDialog.Builder(this)
             .setTitle(R.string.jitter_title)
@@ -1037,7 +1088,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     // --------------------------------------------------- play/stop channel
 
-    /** Mulai channel pada posisi tertentu (dari pin ATAU dari favorite). */
     private fun startChannel(channel: String, pos: LatLng) {
         val googleMap = map ?: return
         if (channel == "grb") {
@@ -1049,6 +1099,11 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             }
             updateGrbChipText()
             persistServiceState("grb", true, pos)
+            // Simpan PUSAT terpisah dari posisi jitter (untuk restore akurat)
+            statePrefs.edit()
+                .putString("grb_center_lat", pos.latitude.toString())
+                .putString("grb_center_lng", pos.longitude.toString())
+                .apply()
             grbJitterCenter = pos
             ensureJitterVisuals("grb")
             grbDot?.position = pos
@@ -1069,6 +1124,10 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             }
             updateGjkChipText()
             persistServiceState("gjk", true, pos)
+            statePrefs.edit()
+                .putString("gjk_center_lat", pos.latitude.toString())
+                .putString("gjk_center_lng", pos.longitude.toString())
+                .apply()
             gjkJitterCenter = pos
             ensureJitterVisuals("gjk")
             gjkDot?.position = pos
@@ -1083,7 +1142,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         }
     }
 
-    /** Hentikan channel + pastikan OFF terkirim ke target. */
     private fun stopChannel(channel: String) {
         if (channel == "grb") {
             grbPlaying = false
@@ -1129,16 +1187,58 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 .zIndex(3f)
         )
 
+    /**
+     * Pulihkan state play/stop setelah proses dibunuh (force stop / mati):
+     * - play=true  -> marker + titik + lingkaran dibuat ulang di posisi
+     *   terakhir (pusat = koordinat play asli, titik = posisi jitter
+     *   terakhir) dan jitter berjalan lagi.
+     * - play=false -> TIDAK ada yang dibuat (marker tetap terhapus).
+     */
     private fun restoreServiceStates() {
+        // ---- GRB
         if (statePrefs.getBoolean("grb_play", false)) {
-            val lat = statePrefs.getString("grb_lat", null)?.toDoubleOrNull()
-            val lng = statePrefs.getString("grb_lng", null)?.toDoubleOrNull()
-            if (lat != null && lng != null) startChannel("grb", LatLng(lat, lng))
+            val cLat = statePrefs.getString("grb_center_lat", null)?.toDoubleOrNull()
+            val cLng = statePrefs.getString("grb_center_lng", null)?.toDoubleOrNull()
+            val lLat = statePrefs.getString("grb_lat", null)?.toDoubleOrNull()
+            val lLng = statePrefs.getString("grb_lng", null)?.toDoubleOrNull()
+            val center = when {
+                cLat != null && cLng != null -> LatLng(cLat, cLng)
+                lLat != null && lLng != null -> LatLng(lLat, lLng)
+                else -> null
+            }
+            if (center != null) {
+                startChannel("grb", center)
+                // Kembalikan titik jitter ke posisi tick terakhir
+                if (lLat != null && lLng != null) {
+                    grbDot?.position = LatLng(lLat, lLng)
+                    updateGrbChipText()
+                }
+            } else {
+                // play=true tapi tak ada koordinat -> anggap stop & bersihkan
+                statePrefs.edit().putBoolean("grb_play", false).apply()
+            }
         }
+
+        // ---- GJK
         if (statePrefs.getBoolean("gjk_play", false)) {
-            val lat = statePrefs.getString("gjk_lat", null)?.toDoubleOrNull()
-            val lng = statePrefs.getString("gjk_lng", null)?.toDoubleOrNull()
-            if (lat != null && lng != null) startChannel("gjk", LatLng(lat, lng))
+            val cLat = statePrefs.getString("gjk_center_lat", null)?.toDoubleOrNull()
+            val cLng = statePrefs.getString("gjk_center_lng", null)?.toDoubleOrNull()
+            val lLat = statePrefs.getString("gjk_lat", null)?.toDoubleOrNull()
+            val lLng = statePrefs.getString("gjk_lng", null)?.toDoubleOrNull()
+            val center = when {
+                cLat != null && cLng != null -> LatLng(cLat, cLng)
+                lLat != null && lLng != null -> LatLng(lLat, lLng)
+                else -> null
+            }
+            if (center != null) {
+                startChannel("gjk", center)
+                if (lLat != null && lLng != null) {
+                    gjkDot?.position = LatLng(lLat, lLng)
+                    updateGjkChipText()
+                }
+            } else {
+                statePrefs.edit().putBoolean("gjk_play", false).apply()
+            }
         }
     }
 
@@ -1326,12 +1426,15 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         fusedLocationClient.lastLocation.addOnSuccessListener { loc ->
             if (loc != null && !firstFixApplied) {
                 firstFixApplied = true
-                chipActive = true
-                googleMap.moveCamera(
-                    CameraUpdateFactory.newLatLngZoom(
-                        LatLng(loc.latitude, loc.longitude), DEFAULT_ZOOM
+                // Kamera hanya pindah ke titik biru bila TIDAK ada posisi tersimpan
+                if (!cameraRestored) {
+                    chipActive = true
+                    googleMap.moveCamera(
+                        CameraUpdateFactory.newLatLngZoom(
+                            LatLng(loc.latitude, loc.longitude), DEFAULT_ZOOM
+                        )
                     )
-                )
+                }
             }
         }
         startLocationUpdates()
