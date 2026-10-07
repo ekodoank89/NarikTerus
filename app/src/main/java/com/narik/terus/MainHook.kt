@@ -11,27 +11,30 @@ import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.callbacks.XC_LoadPackage
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * Hook terpasang di SEMUA proses dalam scope. Channel (grb/gjk) DITETAPKAN
- * dinamis oleh modul lewat broadcast: saat app target start -> ACTION_QUERY
- * -> modul mencocokkan paket dengan prefs <channel>_target -> balasan
- * ACTION_STATE berisi channel + state + metode. Semua konstanta bersama
- * ada di HookContract (kelas ini TIDAK mendeklarasikan konstanta apa pun).
+ * Hook di proses target:
+ * - Spoof lokasi (state dari broadcast ACTION_STATE).
+ * - Auto-stop: RemoteMessage.getData() (FCM) dicek terhadap kata kunci
+ *   trigger channel (dibawa di setiap ACTION_STATE). Saat cocok ->
+ *   state OFF seketika + broadcast ACTION_TRIGGER ke modul.
+ * - Setiap payload FCM juga dikirim via ACTION_RECENT untuk daftar recent.
  */
 class MainHook : IXposedHookLoadPackage {
 
     companion object {
         private const val SERVE_LOG_INTERVAL_MS = 10_000L
+        private const val RECENT_LOG_INTERVAL_MS = 3_000L
+        private const val MAX_TRIGGER_WORDS = 8
     }
 
     data class State(
         val playing: Boolean,
         val lat: Double,
         val lng: Double,
-        val methods: Long
+        val methods: Long,
+        val triggerKeywords: String   // kosong = nonaktif
     )
 
     @Volatile
@@ -40,12 +43,13 @@ class MainHook : IXposedHookLoadPackage {
     @Volatile
     private var state: State? = null
 
-    private val firstHookCall = AtomicBoolean(false)
     private val lastServeLog = AtomicLong(0L)
+    private val lastRecentLog = AtomicLong(0L)
 
     override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
         hookLocation(lpparam.classLoader)
         hookGnssStatus(lpparam.classLoader)
+        hookFcm(lpparam.classLoader)
         hookApplicationAttach(lpparam.packageName)
         XposedBridge.log(
             "[NarikTerus] hook terpasang (menunggu penugasan channel): ${lpparam.packageName}"
@@ -81,14 +85,15 @@ class MainHook : IXposedHookLoadPackage {
                 val lat = intent.getDoubleExtra(HookContract.KEY_LAT, 0.0)
                 val lng = intent.getDoubleExtra(HookContract.KEY_LNG, 0.0)
                 val methods = intent.getLongExtra(HookContract.KEY_METHODS, 0L)
+                val trigger = intent.getStringExtra("trigger_keywords") ?: ""
                 val oldPlaying = state?.playing
                 channel = newChannel
-                state = State(playing, lat, lng, methods)
+                state = State(playing, lat, lng, methods, trigger)
                 if (oldPlaying != playing || oldPlaying == null) {
                     XposedBridge.log(
                         "[NarikTerus] $newChannel: state -> " +
                             (if (playing) "ON ($lat, $lng)" else "OFF") +
-                            " metode=$methods"
+                            " metode=$methods trigger='$trigger'"
                     )
                 }
             }
@@ -121,11 +126,6 @@ class MainHook : IXposedHookLoadPackage {
     private fun hookLocation(cl: ClassLoader) {
         val core = object : XC_MethodHook() {
             override fun afterHookedMethod(param: MethodHookParam) {
-                if (firstHookCall.compareAndSet(false, true)) {
-                    XposedBridge.log(
-                        "[NarikTerus] Location.${param.method.name} dipanggil pertama kali"
-                    )
-                }
                 val st = state ?: return
                 if (!st.playing) return
                 val now = System.currentTimeMillis()
@@ -205,6 +205,122 @@ class MainHook : IXposedHookLoadPackage {
             XposedHelpers.findAndHookMethod(cls, "getElevation", Int::class.javaPrimitiveType, gnss)
             XposedHelpers.findAndHookMethod(cls, "getAzimuth", Int::class.javaPrimitiveType, gnss)
         } catch (_: Throwable) {
+        }
+    }
+
+    // ------------------------------------------------------- FCM trigger
+
+    /** Fallback: payload dari objek RemoteMessage (jika kelasnya ada). */
+    private fun extractFromRemoteMessage(obj: Any?): String? {
+        return try {
+            val data = XposedHelpers.callMethod(obj, "getData") as? Map<*, *> ?: return null
+            if (data.isEmpty()) null else data.toString()
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    /** Fallback: bundle pesan (jalur lama / IntentService). */
+    private fun extractFromBundle(bundle: android.os.Bundle?): String? {
+        if (bundle == null || bundle.isEmpty) return null
+        return try { bundle.keySet().joinToString(",") { "$it=${bundle.get(it)}" } } catch (_: Throwable) { null }
+    }
+
+    private fun hookFcm(cl: ClassLoader) {
+        // 1) onMessageReceived(RemoteMessage) — semua subclass FirebaseMessagingService
+        try {
+            val fcmBase = XposedHelpers.findClass(
+                "com.google.firebase.messaging.FirebaseMessagingService", cl
+            )
+            XposedHelpers.findAndHookMethod(
+                fcmBase, "onMessageReceived",
+                XposedHelpers.findClass("com.google.firebase.messaging.RemoteMessage", cl),
+                object : XC_MethodHook() {
+                    override fun afterHookedMethod(param: MethodHookParam) {
+                        val payload = extractFromRemoteMessage(param.args.firstOrNull())
+                        handlePayload(payload)
+                    }
+                }
+            )
+        } catch (_: Throwable) {
+        }
+
+        // 2) handleIntent(Intent) — jalur notifikasi/data yang TIDAK lewat
+        //    onMessageReceived (app background) — payload ada di extras.
+        try {
+            val fcmBase = XposedHelpers.findClass(
+                "com.google.firebase.messaging.FirebaseMessagingService", cl
+            )
+            XposedHelpers.findAndHookMethod(
+                fcmBase, "handleIntent", Intent::class.java,
+                object : XC_MethodHook() {
+                    override fun afterHookedMethod(param: MethodHookParam) {
+                        val i = param.args.firstOrNull() as? Intent ?: return
+                        val bundle = i.extras
+                        var payload = extractFromBundle(bundle)
+                        // "gcm.n.e" dsb. terkompres; bongko key asli bila ada
+                        if (payload == null) {
+                            try {
+                                val w = XposedHelpers.callStaticMethod(
+                                    XposedHelpers.findClass(
+                                        "com.google.firebase.messaging.Constants", cl
+                                    ),
+                                    "encodeTag"
+                                )
+                            } catch (_: Throwable) {
+                            }
+                        }
+                        handlePayload(payload)
+                    }
+                }
+            )
+        } catch (_: Throwable) {
+        }
+    }
+
+    /** Evaluasi payload: recent + cek kata kunci trigger. */
+    private fun handlePayload(payload: String?) {
+        if (payload.isNullOrEmpty()) return
+        val st = state ?: return
+        val ch = channel ?: return
+
+        // Kirim payload ke daftar recent (throttle 3 dtk agar tidak banjir)
+        val now = System.currentTimeMillis()
+        if (now - lastRecentLog.get() >= RECENT_LOG_INTERVAL_MS) {
+            lastRecentLog.set(now)
+            sendToModule(HookContract.ACTION_RECENT, ch, payload)
+            XposedBridge.log("[NarikTerus] $ch FCM payload: $payload")
+        } else {
+            sendToModule(HookContract.ACTION_RECENT, ch, payload)
+        }
+
+        // Cek kata kunci (case-insensitive, dipisah koma)
+        val keywords = st.triggerKeywords.split(',')
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+        if (keywords.isEmpty() || !st.playing) return
+
+        val lower = payload.lowercase()
+        val hit = keywords.any { lower.contains(it.lowercase()) }
+        if (hit) {
+            XposedBridge.log("[NarikTerus] $ch: TRIGGER ORDER MASUK -> auto-stop")
+            state = st.copy(playing = false)
+            sendToModule(HookContract.ACTION_TRIGGER, ch, payload)
+        }
+    }
+
+    private fun sendToModule(action: String, ch: String, payload: String) {
+        try {
+            val app = AndroidAppHelper.currentApplication()
+                ?: return
+            app.sendBroadcast(
+                Intent(action).setPackage(HookContract.MODULE_PKG)
+                    .putExtra(HookContract.KEY_CHANNEL, ch)
+                    .putExtra(HookContract.KEY_PAYLOAD, payload)
+                    .putExtra(HookContract.KEY_MATCHED, action == HookContract.ACTION_TRIGGER)
+            )
+        } catch (t: Throwable) {
+            XposedBridge.log("[NarikTerus] kirim $action gagal: $t")
         }
     }
 }
