@@ -17,44 +17,13 @@ import java.util.concurrent.atomic.AtomicLong
 /**
  * Hook terpasang di SEMUA proses dalam scope. Channel (grb/gjk) DITETAPKAN
  * dinamis oleh modul lewat broadcast: saat app target start -> ACTION_QUERY
- * -> modul mencocokkan paket dgn prefs <channel>_target -> balasan
- * ACTION_STATE berisi channel + state + metode. Perubahan metode/play
- * diapply live tanpa restart target.
+ * -> modul mencocokkan paket dengan prefs <channel>_target -> balasan
+ * ACTION_STATE berisi channel + state + metode. Semua konstanta bersama
+ * ada di HookContract (kelas ini TIDAK mendeklarasikan konstanta apa pun).
  */
 class MainHook : IXposedHookLoadPackage {
 
     companion object {
-        const val HookContract.ACTION_STATE = "com.narik.terus.ACTION_STATE"
-        const val HookContract.ACTION_QUERY = "com.narik.terus.ACTION_QUERY"
-
-        const val HookContract.KEY_CHANNEL = "channel"
-        const val HookContract.KEY_PACKAGE = "package"
-        const val HookContract.KEY_PLAY = "play"
-        const val HookContract.KEY_LAT = "lat"
-        const val HookContract.KEY_LNG = "lng"
-        const val HookContract.KEY_METHODS = "methods"
-
-        const val MODULE_PKG = "com.narik.terus"
-        const val DEFAULT_TARGET_GRB = "com.pierwiastek.gpsdata"
-        const val DEFAULT_TARGET_GJK = "com.khalnadj.khaledhabbachi.gps"
-
-        // Flag metode (bitmask) — selaras MainActivity & StateQueryReceiver
-        const val HookContract.FLAG_SPEED = 1L shl 0
-        const val HookContract.FLAG_BEARING = 1L shl 1
-        const val HookContract.FLAG_ACCURACY = 1L shl 2
-        const val HookContract.FLAG_ALTITUDE = 1L shl 3
-        const val HookContract.FLAG_MOCK = 1L shl 4
-        const val HookContract.FLAG_GNSS = 1L shl 5
-
-        val METHOD_DEFS: List<Pair<Long, String>> = listOf(
-            HookContract.FLAG_SPEED to "Kecepatan (getSpeed → 0)",
-            HookContract.FLAG_BEARING to "Arah (getBearing → 0°)",
-            HookContract.FLAG_ACCURACY to "Akurasi (getAccuracy → 10 m)",
-            HookContract.FLAG_ALTITUDE to "Altitude (getAltitude → 35 m)",
-            HookContract.FLAG_MOCK to "Samarkan mock (isMock → false)",
-            HookContract.FLAG_GNSS to "Satelit GNSS (GnssStatus palsu)"
-        )
-
         private const val SERVE_LOG_INTERVAL_MS = 10_000L
     }
 
@@ -107,11 +76,11 @@ class MainHook : IXposedHookLoadPackage {
     private fun registerStateReceiver(ctx: Context) {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
-                val newChannel = intent.getStringExtra(KEY_CHANNEL) ?: return
-                val playing = intent.getBooleanExtra(KEY_PLAY, false)
-                val lat = intent.getDoubleExtra(KEY_LAT, 0.0)
-                val lng = intent.getDoubleExtra(KEY_LNG, 0.0)
-                val methods = intent.getLongExtra(KEY_METHODS, 0L)
+                val newChannel = intent.getStringExtra(HookContract.KEY_CHANNEL) ?: return
+                val playing = intent.getBooleanExtra(HookContract.KEY_PLAY, false)
+                val lat = intent.getDoubleExtra(HookContract.KEY_LAT, 0.0)
+                val lng = intent.getDoubleExtra(HookContract.KEY_LNG, 0.0)
+                val methods = intent.getLongExtra(HookContract.KEY_METHODS, 0L)
                 val oldPlaying = state?.playing
                 channel = newChannel
                 state = State(playing, lat, lng, methods)
@@ -124,7 +93,7 @@ class MainHook : IXposedHookLoadPackage {
                 }
             }
         }
-        val filter = IntentFilter(ACTION_STATE)
+        val filter = IntentFilter(HookContract.ACTION_STATE)
         try {
             if (Build.VERSION.SDK_INT >= 33) {
                 ctx.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
@@ -139,8 +108,8 @@ class MainHook : IXposedHookLoadPackage {
     private fun requestAssignment(ctx: Context, targetPackage: String) {
         try {
             ctx.sendBroadcast(
-                Intent(ACTION_QUERY).setPackage(MODULE_PKG)
-                    .putExtra(KEY_PACKAGE, targetPackage)
+                Intent(HookContract.ACTION_QUERY).setPackage(HookContract.MODULE_PKG)
+                    .putExtra(HookContract.KEY_PACKAGE, targetPackage)
             )
         } catch (t: Throwable) {
             XposedBridge.log("[NarikTerus] query assignment gagal: $t")
@@ -189,15 +158,17 @@ class MainHook : IXposedHookLoadPackage {
             } catch (_: Throwable) {
             }
         }
-        attr("getSpeed", 0f, FLAG_SPEED)
-        attr("getBearing", 0f, FLAG_BEARING)
-        attr("getAccuracy", 10f, FLAG_ACCURACY)
-        attr("getAltitude", 35.0, FLAG_ALTITUDE)
+        attr("getSpeed", 0f, HookContract.FLAG_SPEED)
+        attr("getBearing", 0f, HookContract.FLAG_BEARING)
+        attr("getAccuracy", 10f, HookContract.FLAG_ACCURACY)
+        attr("getAltitude", 35.0, HookContract.FLAG_ALTITUDE)
 
         val mock = object : XC_MethodHook() {
             override fun afterHookedMethod(param: MethodHookParam) {
                 val st = state ?: return
-                if (st.playing && (st.methods and FLAG_MOCK) != 0L) param.result = false
+                if (st.playing && (st.methods and HookContract.FLAG_MOCK) != 0L) {
+                    param.result = false
+                }
             }
         }
         try {
@@ -216,7 +187,7 @@ class MainHook : IXposedHookLoadPackage {
         val gnss = object : XC_MethodHook() {
             override fun afterHookedMethod(param: MethodHookParam) {
                 val st = state ?: return
-                if (!st.playing || (st.methods and FLAG_GNSS) == 0L) return
+                if (!st.playing || (st.methods and HookContract.FLAG_GNSS) == 0L) return
                 when (param.method.name) {
                     "getSatelliteCount" -> param.result = 12
                     "usedInFix" -> param.result = true
