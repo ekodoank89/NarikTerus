@@ -1,5 +1,9 @@
 package com.narik.terus
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.ScrollView
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Intent
@@ -79,6 +83,15 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
         private const val DOT_COLOR_GRB = 0xFFEA4335.toInt()
         private const val DOT_COLOR_GJK = 0xFF34A853.toInt()
+    }
+
+    companion object TriggerBridge {
+        /** Dipanggil TriggerReceiver (background) -> lempar ke UI thread. */
+        fun requestStopChannel(context: Context, channel: String) {
+            val prefs = context.getSharedPreferences("narik_state", Context.MODE_PRIVATE)
+            prefs.edit().putBoolean("${channel}_play", false).apply()
+            prefs.edit().putString("${channel}_stop_request", "1").apply()
+        }
     }
 
     private data class Favorite(val name: String, val lat: Double, val lng: Double)
@@ -261,6 +274,9 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         rowMethodGrb.setOnClickListener { showMethodPicker("grb") }
         rowTargetGjk.setOnClickListener { showAppPicker("gjk") }
         rowMethodGjk.setOnClickListener { showMethodPicker("gjk") }
+        rowTriggerGrb.setOnClickListener { showTriggerEditor("grb") }
+        rowTriggerGjk.setOnClickListener { showTriggerEditor("gjk") }
+
 
         btnCloseMenu.setOnClickListener {
             menuPanel.isVisible = false
@@ -270,7 +286,16 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         refreshSetLabels()
 
         (supportFragmentManager.findFragmentById(R.id.map) as SupportMapFragment)
-            .getMapAsync(this)
+            .
+        // Sinkronkan UI bila auto-stop terjadi saat aplikasi tidak terbuka
+        for (ch in listOf("grb", "gjk")) {
+            if (statePrefs.getString("${ch}_stop_request", null) != null) {
+                statePrefs.edit().remove("${ch}_stop_request").apply()
+                if (playingFor(ch)) stopChannel(ch)
+            }
+        }
+            
+            getMapAsync(this)
 
         requestMainPermissions()
     }
@@ -482,6 +507,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         valMethodGrb.text = methodsLabel(grbMethods)
         valTargetGjk.text = gjkTarget
         valMethodGjk.text = methodsLabel(gjkMethods)
+        valTriggerGrb.text = grbTarget
+        // nilai trigger dipakai bersama val text di layout SET (lihat langkah 8)
     }
 
     private fun methodsLabel(mask: Long): String {
@@ -563,7 +590,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         var sel = methodsFor(channel)
         val names = HookContract.METHOD_DEFS.map { it.second }.toTypedArray()
         val checked = HookContract.METHOD_DEFS.map { (sel and it.first) != 0L }.toBooleanArray()
-
+ 
         AlertDialog.Builder(this)
             .setTitle("Metode hook ${channel.uppercase()}")
             .setMultiChoiceItems(names, checked) { _, which, isChecked ->
@@ -580,6 +607,73 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         if (channel == "grb") grbMethods = mask else gjkMethods = mask
         pushCurrentPosition(channel)
         refreshSetLabels()
+    }
+
+    private fun showTriggerEditor(channel: String) {
+        val input = EditText(this).apply {
+            hint = getString(R.string.trigger_hint)
+            setSingleLine()
+            setText(
+                statePrefs.getString("${channel}_trigger", if (channel == "grb") "order" else "order")
+            )
+        }
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val d = (16 * resources.displayMetrics.density).toInt()
+            setPadding(d, d / 2, d, 0)
+            addView(input)
+        }
+        AlertDialog.Builder(this)
+            .setTitle(getString(R.string.row_trigger_grb).let {
+                if (channel == "gjk") getString(R.string.row_trigger_gjk) else it
+            })
+            .setView(container)
+            .setPositiveButton(R.string.trigger_save) { _, _ ->
+                val v = input.text.toString().trim()
+                statePrefs.edit().putString("${channel}_trigger", v).apply()
+                // Kirim ulang state agar kata kunci baru langsung dipakai hook
+                pushCurrentPosition(channel)
+                if (!playingFor(channel)) {
+                    sendStateTo(
+                        currentTarget(channel), channel, false, null, methodsFor(channel)
+                    )
+                }
+                Toast.makeText(this, R.string.trigger_saved, Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun showRecentList(channel: String) {
+        val list = statePrefs.getString("recent_$channel", null)
+            ?.split('\n')?.filter { it.isNotBlank() } ?: emptyList()
+
+        val container = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        if (list.isEmpty()) {
+            container.addView(TextView(this).apply {
+                text = getString(R.string.recent_empty)
+                setPadding(48, 24, 48, 24)
+            })
+        } else {
+            for (item in list) {
+                container.addView(TextView(this).apply {
+                    text = item
+                    textSize = 12f
+                    setPadding(48, 20, 48, 20)
+                    setOnClickListener {
+                        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        cm.setPrimaryClip(ClipData.newPlainText("payload", item))
+                        Toast.makeText(context, R.string.recent_copied, Toast.LENGTH_SHORT).show()
+                    }
+                })
+            }
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle(R.string.recent_title)
+            .setView(ScrollView(this).apply { addView(container) })
+            .setPositiveButton(android.R.string.ok, null)
+            .show()
     }
 
     // ------------------------------------------------------------ favorite
@@ -1280,6 +1374,10 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         methods: Long
     ) {
         if (targetPkg.isNullOrEmpty()) return
+        val triggerKeywords = when (channel) {
+            "grb" -> statePrefs.getString("grb_trigger", "") ?: ""
+            else -> statePrefs.getString("gjk_trigger", "") ?: ""
+        }
         runCatching {
             sendBroadcast(
                 Intent(HookContract.ACTION_STATE).setPackage(targetPkg)
@@ -1288,6 +1386,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                     .putExtra(HookContract.KEY_LAT, pos?.latitude ?: 0.0)
                     .putExtra(HookContract.KEY_LNG, pos?.longitude ?: 0.0)
                     .putExtra(HookContract.KEY_METHODS, methods)
+                    .putExtra("trigger_keywords", triggerKeywords)
             )
         }
     }
