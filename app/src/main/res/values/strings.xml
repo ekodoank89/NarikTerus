@@ -28,8 +28,8 @@
     <string name="jitter_title">Jitter</string>
     <string name="jitter_tab_grb">GRB</string>
     <string name="jitter_tab_gjk">GJK</string>
-    <string name="jitter_enabled">Jitter aktif: %1$s</string>
     <string name="jitter_step_label">Langkah: %1$s m</string>
     <string name="jitter_maxdist_label">Batas langkah: %1$s m</string>
     <string name="jitter_interval_label">Interval: %1$s detik</string>
+    <string name="jitter_default">Default</string>
 </resources>
