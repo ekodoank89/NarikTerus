@@ -31,6 +31,11 @@
         <meta-data
             android:name="xposedscope"
             android:resource="@array/xposed_scope" />
+        <!-- Jembatan state play/koordinat untuk hook di proses target -->
+        <provider
+            android:name=".StateProvider"
+            android:authorities="com.narik.terus.state"
+            android:exported="true" />
 
         <activity
             android:name=".MainActivity"
