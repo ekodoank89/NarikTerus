@@ -12,30 +12,30 @@ import android.content.Intent
 class StateQueryReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != MainHook.ACTION_QUERY) return
-        val senderPkg = intent.getStringExtra(MainHook.KEY_PACKAGE) ?: return
+        if (intent.action != HookContract.ACTION_QUERY) return
+        val senderPkg = intent.getStringExtra(HookContract.KEY_PACKAGE) ?: return
 
         val prefs = context.getSharedPreferences("narik_state", Context.MODE_PRIVATE)
         val channel = when (senderPkg) {
-            prefs.getString("grb_target", MainHook.DEFAULT_TARGET_GRB) -> "grb"
-            prefs.getString("gjk_target", MainHook.DEFAULT_TARGET_GJK) -> "gjk"
+            prefs.getString("grb_target", HookContract.DEFAULT_TARGET_GRB) -> "grb"
+            prefs.getString("gjk_target", HookContract.DEFAULT_TARGET_GJK) -> "gjk"
             else -> return // bukan target siapa pun -> tidak ditugaskan
         }
 
         runCatching {
             context.sendBroadcast(
-                Intent(MainHook.ACTION_STATE).setPackage(senderPkg)
-                    .putExtra(MainHook.KEY_CHANNEL, channel)
-                    .putExtra(MainHook.KEY_PLAY, prefs.getBoolean("${channel}_play", false))
+                Intent(HookContract.ACTION_STATE).setPackage(senderPkg)
+                    .putExtra(HookContract.KEY_CHANNEL, channel)
+                    .putExtra(HookContract.KEY_PLAY, prefs.getBoolean("${channel}_play", false))
                     .putExtra(
-                        MainHook.KEY_LAT,
+                        HookContract.KEY_LAT,
                         prefs.getString("${channel}_lat", null)?.toDoubleOrNull() ?: 0.0
                     )
                     .putExtra(
-                        MainHook.KEY_LNG,
+                        HookContract.KEY_LNG,
                         prefs.getString("${channel}_lng", null)?.toDoubleOrNull() ?: 0.0
                     )
-                    .putExtra(MainHook.KEY_METHODS, prefs.getLong("${channel}_methods", 0L))
+                    .putExtra(HookContract.KEY_METHODS, prefs.getLong("${channel}_methods", 0L))
             )
         }
     }
