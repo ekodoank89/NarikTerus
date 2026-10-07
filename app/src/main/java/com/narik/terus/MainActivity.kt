@@ -561,7 +561,28 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         statePrefs.edit().putString("favorites_$channel", arr.toString()).apply()
     }
 
-    private fun showFavoriteDialog() {
+    /**
+     * Cari favorite dengan koordinat sama (6 desimal), -1 jika tidak ada.
+     * excludeIndex: indeks yang sedang diedit agar tidak menganggap dirinya duplikat.
+     */
+    private fun findDuplicateCoordIndex(
+        favs: List<Favorite>,
+        lat: Double,
+        lng: Double,
+        excludeIndex: Int? = null
+    ): Int {
+        val latKey = String.format(Locale.US, "%.6f", lat)
+        val lngKey = String.format(Locale.US, "%.6f", lng)
+        favs.forEachIndexed { i, f ->
+            if (i == excludeIndex) return@forEachIndexed
+            if (String.format(Locale.US, "%.6f", f.lat) == latKey &&
+                String.format(Locale.US, "%.6f", f.lng) == lngKey
+            ) return i
+        }
+        return -1
+    }
+
+     private fun showFavoriteDialog() {
         val view = layoutInflater.inflate(R.layout.dialog_favorite, null)
 
         val tabGrb = view.findViewById<TextView>(R.id.tab_fav_grb)
@@ -600,12 +621,16 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 R.string.fav_pin_coord, pinCoord?.let { formatLatLng(it) } ?: "-"
             )
 
-            /**
-             * Akordeon: hanya SATU sub menu terbuka.
-             * "pin" -> buka DARI PIN + tutup MANUAL
-             * "manual" -> buka MANUAL + tutup DARI PIN
-             * null -> semua tertutup
-             */
+            /** Dialog info koordinat duplikat. */
+            fun showDuplicateInfo(dupPosText: String, dupName: String) {
+                AlertDialog.Builder(this)
+                    .setTitle(R.string.fav_duplicate_title)
+                    .setMessage(getString(R.string.fav_duplicate_msg, dupPosText, dupName))
+                    .setPositiveButton(android.R.string.ok, null)
+                    .show()
+            }
+
+            /** Akordeon: hanya SATU sub menu terbuka. null = semua tertutup. */
             fun setActiveSection(which: String?) {
                 contentPin.isVisible = which == "pin"
                 contentManual.isVisible = which == "manual"
@@ -698,8 +723,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 }
             }
 
-            // Akordeon: tap header membuka miliknya & menutup pasangannya;
-            // tap lagi pada yang terbuka = menutup.
+            // Akordeon
             headerPin.setOnClickListener {
                 setActiveSection(if (contentPin.isVisible) null else "pin")
             }
@@ -712,12 +736,17 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             inputLat.addTextChangedListener(textWatcher { refreshButtons() })
             inputLng.addTextChangedListener(textWatcher { refreshButtons() })
 
-            // Simpan DARI PIN
+            // Simpan DARI PIN (+ cross cek duplikat koordinat)
             btnSavePin.setOnClickListener {
                 val name = inputNamePin.text.toString().trim()
                 val pos = map?.cameraPosition?.target ?: return@setOnClickListener
                 if (name.isEmpty()) return@setOnClickListener
                 val cur = loadFavorites(ch)
+                val dup = findDuplicateCoordIndex(cur, pos.latitude, pos.longitude)
+                if (dup >= 0) {
+                    showDuplicateInfo(formatLatLng(pos), cur[dup].name)
+                    return@setOnClickListener
+                }
                 cur.add(Favorite(name, pos.latitude, pos.longitude))
                 persistFavorites(ch, cur)
                 clearPinInputs()
@@ -725,7 +754,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 refreshList()
             }
 
-            // Simpan / Update MANUAL
+            // Simpan / Update MANUAL (+ cross cek duplikat koordinat)
             btnSaveManual.setOnClickListener {
                 val name = inputNameManual.text.toString().trim()
                 val lat = inputLat.text.toString().trim().toDoubleOrNull()
@@ -733,6 +762,14 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 if (name.isEmpty() || lat == null || lng == null) return@setOnClickListener
                 val cur = loadFavorites(ch)
                 val editing = editingIndex
+                // Update: item yang diedit dikecualikan dari cek duplikat
+                val dup = findDuplicateCoordIndex(cur, lat, lng, editing)
+                if (dup >= 0) {
+                    showDuplicateInfo(
+                        formatLatLng(LatLng(lat, lng)), cur[dup].name
+                    )
+                    return@setOnClickListener
+                }
                 if (editing != null && editing < cur.size) {
                     cur[editing] = Favorite(name, lat, lng)
                 } else {
