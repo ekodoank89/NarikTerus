@@ -72,7 +72,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         private const val SECRET_TAPS_REQUIRED = 7
         private const val SECRET_TAP_TIMEOUT_MS = 2_000L
         private const val MARKER_SIZE_DP = 56f
-        private const val MARKER_BOTTOM_GAP_DP = 8f
+        private const val MARKER_BOTTOM_GAP_DP = 0f
         private const val PREFS_NAME = "narik_state"
         private const val EARTH_RADIUS_M = 6_371_000.0
         private const val METERS_PER_DEG_LAT = 111_320.0
