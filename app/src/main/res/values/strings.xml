@@ -5,7 +5,7 @@
     <string name="autofocus">Autofokus ke titik biru + kompas ke utara</string>
     <string name="zoom_in">Zoom maksimal</string>
     <string name="zoom_out">Zoom keluar</string>
-    <string name="coords_chip">Koordinat (tap: sembunyikan)</string>
+    <string name="coords_chip">Koordinat</string>
     <string name="coords_placeholder">Menunggu lokasi…</string>
     <string name="secret_menu">Menu</string>
     <string name="close_menu">Tutup</string>
@@ -29,9 +29,7 @@
     <string name="jitter_tab_grb">GRB</string>
     <string name="jitter_tab_gjk">GJK</string>
     <string name="jitter_enabled">Jitter aktif: %1$s</string>
-    <string name="jitter_step">Langkah acak maks (meter)</string>
-    <string name="jitter_interval">Interval update (detik)</string>
-    <string name="jitter_radius">Batas radius (meter)</string>
-    <string name="jitter_save">Simpan</string>
-    <string name="jitter_cancel">Batal</string>
+    <string name="jitter_step_label">Langkah: %1$s m</string>
+    <string name="jitter_maxdist_label">Batas langkah: %1$s m</string>
+    <string name="jitter_interval_label">Interval: %1$s detik</string>
 </resources>
