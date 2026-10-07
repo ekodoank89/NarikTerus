@@ -8,7 +8,6 @@ import android.content.IntentFilter
 import android.os.Build
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.XC_MethodHook
-import de.robv.android.xposed.XSharedPreferences
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.callbacks.XC_LoadPackage
@@ -16,74 +15,77 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * Sumber state (urutan):
- * 1. MEMORI — diisi broadcast ACTION_STATE dari modul (PUSH real-time
- *    maupun balasan query saat app target start). SELinux-safe.
- * 2. XSharedPreferences — fallback.
+ * Hook terpasang di SEMUA proses dalam scope. Channel (grb/gjk) DITETAPKAN
+ * dinamis oleh modul lewat broadcast: saat app target start -> ACTION_QUERY
+ * -> modul mencocokkan paket dgn prefs <channel>_target -> balasan
+ * ACTION_STATE berisi channel + state + metode. Perubahan metode/play
+ * diapply live tanpa restart target.
  */
 class MainHook : IXposedHookLoadPackage {
 
     companion object {
-        private const val PKG_GRB = "com.pierwiastek.gpsdata"
-        private const val PKG_GJK = "com.khalnadj.khaledhabbachi.gps"
-        private const val MODULE_PKG = "com.narik.terus"
-
         const val ACTION_STATE = "com.narik.terus.ACTION_STATE"
         const val ACTION_QUERY = "com.narik.terus.ACTION_QUERY"
 
-        private const val KEY_CHANNEL = "channel"
-        private const val KEY_PLAY = "play"
-        private const val KEY_LAT = "lat"
-        private const val KEY_LNG = "lng"
-        private const val KEY_PACKAGE = "package"
+        const val KEY_CHANNEL = "channel"
+        const val KEY_PACKAGE = "package"
+        const val KEY_PLAY = "play"
+        const val KEY_LAT = "lat"
+        const val KEY_LNG = "lng"
+        const val KEY_METHODS = "methods"
 
-        private const val PREFS_NAME = "narik_state"
-        private const val PREFS_RELOAD_INTERVAL_MS = 500L
+        const val MODULE_PKG = "com.narik.terus"
+        const val DEFAULT_TARGET_GRB = "com.pierwiastek.gpsdata"
+        const val DEFAULT_TARGET_GJK = "com.khalnadj.khaledhabbachi.gps"
+
+        // Flag metode (bitmask) — selaras MainActivity & StateQueryReceiver
+        const val FLAG_SPEED = 1L shl 0
+        const val FLAG_BEARING = 1L shl 1
+        const val FLAG_ACCURACY = 1L shl 2
+        const val FLAG_ALTITUDE = 1L shl 3
+        const val FLAG_MOCK = 1L shl 4
+        const val FLAG_GNSS = 1L shl 5
+
+        val METHOD_DEFS: List<Pair<Long, String>> = listOf(
+            FLAG_SPEED to "Kecepatan (getSpeed → 0)",
+            FLAG_BEARING to "Arah (getBearing → 0°)",
+            FLAG_ACCURACY to "Akurasi (getAccuracy → 10 m)",
+            FLAG_ALTITUDE to "Altitude (getAltitude → 35 m)",
+            FLAG_MOCK to "Samarkan mock (isMock → false)",
+            FLAG_GNSS to "Satelit GNSS (GnssStatus palsu)"
+        )
+
         private const val SERVE_LOG_INTERVAL_MS = 10_000L
     }
 
-    private data class State(val playing: Boolean, val lat: Double, val lng: Double)
-
-    private var channel: String? = null
-    private var prefs: XSharedPreferences? = null
+    data class State(
+        val playing: Boolean,
+        val lat: Double,
+        val lng: Double,
+        val methods: Long
+    )
 
     @Volatile
-    private var memState: State? = null
+    private var channel: String? = null
 
-    private val appHookDone = AtomicBoolean(false)
-    private val prefsDiagLogged = AtomicBoolean(false)
+    @Volatile
+    private var state: State? = null
+
     private val firstHookCall = AtomicBoolean(false)
-    private val lastPrefsReload = AtomicLong(0L)
     private val lastServeLog = AtomicLong(0L)
 
     override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
-        channel = when (lpparam.packageName) {
-            PKG_GRB -> "grb"
-            PKG_GJK -> "gjk"
-            else -> return
-        }
-
-        prefs = try {
-            XSharedPreferences(MODULE_PKG, PREFS_NAME)
-        } catch (t: Throwable) {
-            XposedBridge.log("[NarikTerus] XSharedPreferences gagal dibuat: $t")
-            null
-        }
-
-        hookLocationClass(lpparam.classLoader)
+        hookLocation(lpparam.classLoader)
+        hookGnssStatus(lpparam.classLoader)
         hookApplicationAttach(lpparam.packageName)
-
-        val st = currentState()
         XposedBridge.log(
-            "[NarikTerus] Hook aktif: ${lpparam.packageName} -> channel=$channel | " +
-                "state awal: ${st?.let { "play=${it.playing}" } ?: "menunggu broadcast"}"
+            "[NarikTerus] hook terpasang (menunggu penugasan channel): ${lpparam.packageName}"
         )
     }
 
-    // ------------------------------------------- broadcast state (utama)
+    // ------------------------------------------------- Application.attach
 
     private fun hookApplicationAttach(targetPackage: String) {
-        if (!appHookDone.compareAndSet(false, true)) return
         try {
             XposedHelpers.findAndHookMethod(
                 Application::class.java,
@@ -93,29 +95,31 @@ class MainHook : IXposedHookLoadPackage {
                     override fun afterHookedMethod(param: MethodHookParam) {
                         val ctx = param.thisObject as? Context ?: return
                         registerStateReceiver(ctx)
-                        requestInitialState(ctx, targetPackage)
+                        requestAssignment(ctx, targetPackage)
                     }
                 }
             )
         } catch (t: Throwable) {
-            XposedBridge.log("[NarikTerus] Gagal hook Application.attach: $t")
+            XposedBridge.log("[NarikTerus] gagal hook Application.attach: $t")
         }
     }
 
     private fun registerStateReceiver(ctx: Context) {
-        val ch = channel ?: return
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
-                if (intent.getStringExtra(KEY_CHANNEL) != ch) return
+                val newChannel = intent.getStringExtra(KEY_CHANNEL) ?: return
                 val playing = intent.getBooleanExtra(KEY_PLAY, false)
                 val lat = intent.getDoubleExtra(KEY_LAT, 0.0)
                 val lng = intent.getDoubleExtra(KEY_LNG, 0.0)
-                val old = memState
-                memState = State(playing, lat, lng)
-                if (old?.playing != playing) {
+                val methods = intent.getLongExtra(KEY_METHODS, 0L)
+                val oldPlaying = state?.playing
+                channel = newChannel
+                state = State(playing, lat, lng, methods)
+                if (oldPlaying != playing || oldPlaying == null) {
                     XposedBridge.log(
-                        "[NarikTerus] $ch: state diterima -> " +
-                            if (playing) "ON ($lat, $lng)" else "OFF"
+                        "[NarikTerus] $newChannel: state -> " +
+                            (if (playing) "ON ($lat, $lng)" else "OFF") +
+                            " metode=$methods"
                     )
                 }
             }
@@ -127,97 +131,109 @@ class MainHook : IXposedHookLoadPackage {
             } else {
                 ctx.registerReceiver(receiver, filter)
             }
-            XposedBridge.log("[NarikTerus] $ch: receiver state terdaftar")
         } catch (t: Throwable) {
-            XposedBridge.log("[NarikTerus] $ch: gagal daftar receiver: $t")
+            XposedBridge.log("[NarikTerus] gagal daftar receiver state: $t")
         }
     }
 
-    private fun requestInitialState(ctx: Context, targetPackage: String) {
-        val ch = channel ?: return
+    private fun requestAssignment(ctx: Context, targetPackage: String) {
         try {
             ctx.sendBroadcast(
                 Intent(ACTION_QUERY).setPackage(MODULE_PKG)
-                    .putExtra(KEY_CHANNEL, ch)
                     .putExtra(KEY_PACKAGE, targetPackage)
             )
-            XposedBridge.log("[NarikTerus] $ch: query state terkirim ke modul")
         } catch (t: Throwable) {
-            XposedBridge.log("[NarikTerus] $ch: query state gagal: $t")
+            XposedBridge.log("[NarikTerus] query assignment gagal: $t")
         }
     }
 
-    // ------------------------------------------------------- pembacaan
+    // ------------------------------------------------------------- hooks
 
-    private fun currentState(): State? {
-        memState?.let { return it } // UTAMA: dari broadcast
-
-        // Fallback: prefs (hanya jendela sesaat sebelum balasan broadcast tiba)
-        val p = prefs ?: return null
-        val ch = channel ?: return null
-        return try {
-            val now = System.currentTimeMillis()
-            val last = lastPrefsReload.get()
-            if (now - last >= PREFS_RELOAD_INTERVAL_MS &&
-                lastPrefsReload.compareAndSet(last, now)
-            ) {
-                if (prefsDiagLogged.compareAndSet(false, true)) {
-                    val f = p.file
-                    XposedBridge.log(
-                        "[NarikTerus] diag prefs: path=${f?.absolutePath} " +
-                            "exists=${f?.exists()} canRead=${f?.canRead()}"
-                    )
-                }
-                p.reload()
-            }
-            if (p.getBoolean("${ch}_play", false)) {
-                State(
-                    true,
-                    p.getString("${ch}_lat", null)?.toDoubleOrNull() ?: 0.0,
-                    p.getString("${ch}_lng", null)?.toDoubleOrNull() ?: 0.0
-                )
-            } else {
-                State(false, 0.0, 0.0)
-            }
-        } catch (_: Throwable) {
-            null
-        }
-    }
-
-    // ------------------------------------------------------------- hook
-
-    private fun hookLocationClass(classLoader: ClassLoader) {
-        val hook = object : XC_MethodHook() {
+    private fun hookLocation(cl: ClassLoader) {
+        val core = object : XC_MethodHook() {
             override fun afterHookedMethod(param: MethodHookParam) {
                 if (firstHookCall.compareAndSet(false, true)) {
                     XposedBridge.log(
-                        "[NarikTerus] $channel: Location.${param.method.name} " +
-                            "pertama kali dipanggil oleh app target"
+                        "[NarikTerus] Location.${param.method.name} dipanggil pertama kali"
                     )
                 }
-                val st = currentState() ?: return
+                val st = state ?: return
                 if (!st.playing) return
-
                 val now = System.currentTimeMillis()
                 if (now - lastServeLog.get() >= SERVE_LOG_INTERVAL_MS) {
                     lastServeLog.set(now)
-                    XposedBridge.log(
-                        "[NarikTerus] $channel: melayani ${st.lat}, ${st.lng}"
-                    )
+                    XposedBridge.log("[NarikTerus] $channel: melayani ${st.lat}, ${st.lng}")
                 }
                 param.result =
                     if (param.method.name == "getLatitude") st.lat else st.lng
             }
         }
         try {
-            XposedHelpers.findAndHookMethod(
-                "android.location.Location", classLoader, "getLatitude", hook
-            )
-            XposedHelpers.findAndHookMethod(
-                "android.location.Location", classLoader, "getLongitude", hook
-            )
+            XposedHelpers.findAndHookMethod("android.location.Location", cl, "getLatitude", core)
+            XposedHelpers.findAndHookMethod("android.location.Location", cl, "getLongitude", core)
         } catch (t: Throwable) {
-            XposedBridge.log("[NarikTerus] Gagal hook Location: $t")
+            XposedBridge.log("[NarikTerus] gagal hook Location: $t")
+        }
+
+        fun attr(name: String, value: Any?, flag: Long) {
+            try {
+                XposedHelpers.findAndHookMethod(
+                    "android.location.Location", cl, name,
+                    object : XC_MethodHook() {
+                        override fun afterHookedMethod(param: MethodHookParam) {
+                            val st = state ?: return
+                            if (st.playing && (st.methods and flag) != 0L) param.result = value
+                        }
+                    }
+                )
+            } catch (_: Throwable) {
+            }
+        }
+        attr("getSpeed", 0f, FLAG_SPEED)
+        attr("getBearing", 0f, FLAG_BEARING)
+        attr("getAccuracy", 10f, FLAG_ACCURACY)
+        attr("getAltitude", 35.0, FLAG_ALTITUDE)
+
+        val mock = object : XC_MethodHook() {
+            override fun afterHookedMethod(param: MethodHookParam) {
+                val st = state ?: return
+                if (st.playing && (st.methods and FLAG_MOCK) != 0L) param.result = false
+            }
+        }
+        try {
+            XposedHelpers.findAndHookMethod("android.location.Location", cl, "isMock", mock)
+        } catch (_: Throwable) {
+        }
+        try {
+            XposedHelpers.findAndHookMethod(
+                "android.location.Location", cl, "isFromMockProvider", mock
+            )
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun hookGnssStatus(cl: ClassLoader) {
+        val gnss = object : XC_MethodHook() {
+            override fun afterHookedMethod(param: MethodHookParam) {
+                val st = state ?: return
+                if (!st.playing || (st.methods and FLAG_GNSS) == 0L) return
+                when (param.method.name) {
+                    "getSatelliteCount" -> param.result = 12
+                    "usedInFix" -> param.result = true
+                    "getSnr" -> param.result = 25f
+                    "getElevation" -> param.result = 45f
+                    "getAzimuth" -> param.result = 120f
+                }
+            }
+        }
+        try {
+            val cls = XposedHelpers.findClass("android.location.GnssStatus", cl)
+            XposedHelpers.findAndHookMethod(cls, "getSatelliteCount", gnss)
+            XposedHelpers.findAndHookMethod(cls, "usedInFix", Int::class.javaPrimitiveType, gnss)
+            XposedHelpers.findAndHookMethod(cls, "getSnr", Int::class.javaPrimitiveType, gnss)
+            XposedHelpers.findAndHookMethod(cls, "getElevation", Int::class.javaPrimitiveType, gnss)
+            XposedHelpers.findAndHookMethod(cls, "getAzimuth", Int::class.javaPrimitiveType, gnss)
+        } catch (_: Throwable) {
         }
     }
 }
