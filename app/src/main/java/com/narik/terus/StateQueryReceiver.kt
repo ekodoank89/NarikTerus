@@ -5,30 +5,37 @@ import android.content.Context
 import android.content.Intent
 
 /**
- * Menerima permintaan state (ACTION_QUERY) dari hook di proses target,
- * membaca prefs milik sendiri (selalu diizinkan), lalu membalas dengan
- * broadcast ACTION_STATE ke paket peminta.
- * Didaftarkan di manifest sehingga membangunkan proses modul bila mati.
+ * Menjawab ACTION_QUERY dari proses target: menetapkan channel
+ * berdasarkan <channel>_target di prefs modul, lalu membalas
+ * ACTION_STATE (channel + play + koordinat + metode).
  */
 class StateQueryReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != MainHook.ACTION_QUERY) return
-        val channel = intent.getStringExtra("channel") ?: return
-        val senderPkg = intent.getStringExtra("package") ?: return
+        val senderPkg = intent.getStringExtra(MainHook.KEY_PACKAGE) ?: return
 
         val prefs = context.getSharedPreferences("narik_state", Context.MODE_PRIVATE)
-        val playing = prefs.getBoolean("${channel}_play", false)
-        val lat = prefs.getString("${channel}_lat", null)?.toDoubleOrNull() ?: 0.0
-        val lng = prefs.getString("${channel}_lng", null)?.toDoubleOrNull() ?: 0.0
+        val channel = when (senderPkg) {
+            prefs.getString("grb_target", MainHook.DEFAULT_TARGET_GRB) -> "grb"
+            prefs.getString("gjk_target", MainHook.DEFAULT_TARGET_GJK) -> "gjk"
+            else -> return // bukan target siapa pun -> tidak ditugaskan
+        }
 
         runCatching {
             context.sendBroadcast(
                 Intent(MainHook.ACTION_STATE).setPackage(senderPkg)
-                    .putExtra("channel", channel)
-                    .putExtra("play", playing)
-                    .putExtra("lat", lat)
-                    .putExtra("lng", lng)
+                    .putExtra(MainHook.KEY_CHANNEL, channel)
+                    .putExtra(MainHook.KEY_PLAY, prefs.getBoolean("${channel}_play", false))
+                    .putExtra(
+                        MainHook.KEY_LAT,
+                        prefs.getString("${channel}_lat", null)?.toDoubleOrNull() ?: 0.0
+                    )
+                    .putExtra(
+                        MainHook.KEY_LNG,
+                        prefs.getString("${channel}_lng", null)?.toDoubleOrNull() ?: 0.0
+                    )
+                    .putExtra(MainHook.KEY_METHODS, prefs.getLong("${channel}_methods", 0L))
             )
         }
     }
