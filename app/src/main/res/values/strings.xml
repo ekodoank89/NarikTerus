@@ -49,4 +49,12 @@
     <string name="fav_delete_yes">Hapus</string>
     <string name="fav_duplicate_title">Koordinat sudah ada</string>
     <string name="fav_duplicate_msg">Koordinat %1$s sudah ada di list favorite dengan nama \"%2$s\".</string>
+    <string name="row_trigger_grb">Triger GRB</string>
+    <string name="row_trigger_gjk">Triger GJK</string>
+    <string name="trigger_hint">Kata kunci (pisah koma). Kosong = nonaktif</string>
+    <string name="trigger_save">Simpan</string>
+    <string name="trigger_saved">Triger disimpan (aktif saat order masuk)</string>
+    <string name="recent_title">Triger Recent (tap = salin)</string>
+    <string name="recent_empty">Belum ada payload tercatat</string>
+    <string name="recent_copied">Disalin ke clipboard</string>
 </resources>
