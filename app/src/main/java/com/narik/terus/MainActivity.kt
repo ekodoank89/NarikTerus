@@ -600,6 +600,17 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 R.string.fav_pin_coord, pinCoord?.let { formatLatLng(it) } ?: "-"
             )
 
+            /**
+             * Akordeon: hanya SATU sub menu terbuka.
+             * "pin" -> buka DARI PIN + tutup MANUAL
+             * "manual" -> buka MANUAL + tutup DARI PIN
+             * null -> semua tertutup
+             */
+            fun setActiveSection(which: String?) {
+                contentPin.isVisible = which == "pin"
+                contentManual.isVisible = which == "manual"
+            }
+
             fun refreshButtons() {
                 btnSavePin.isEnabled = inputNamePin.text.toString().trim().isNotEmpty()
                 btnSaveManual.isEnabled =
@@ -627,9 +638,21 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
             fun refreshList() {
                 val favs = loadFavorites(ch)
+                val density = resources.displayMetrics.density
                 listContainer.removeAllViews()
                 emptyView.isVisible = favs.isEmpty()
                 favs.forEachIndexed { index, f ->
+
+                    // Separator antar baris (tanpa garis setelah item terakhir)
+                    if (index > 0) {
+                        val divider = View(this)
+                        divider.layoutParams = LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT, 1
+                        ).apply { setMargins((18 * density).toInt(), 0, (18 * density).toInt(), 0) }
+                        divider.setBackgroundColor(0x1F000000)
+                        listContainer.addView(divider)
+                    }
+
                     val row = layoutInflater.inflate(R.layout.row_favorite, listContainer, false)
                     row.findViewById<TextView>(R.id.fav_name).text = f.name
                     row.findViewById<TextView>(R.id.fav_coords).text =
@@ -642,14 +665,14 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                         dlg?.dismiss()
                     }
 
-                    // Edit: isi MANUAL + unhide + tombol jadi Update
+                    // Edit: isi MANUAL + buka MANUAL (tutup DARI PIN) + tombol Update
                     row.findViewById<View>(R.id.btn_edit_fav).setOnClickListener {
                         inputNameManual.setText(f.name)
                         inputLat.setText(f.lat.toString())
                         inputLng.setText(f.lng.toString())
                         editingIndex = index
                         btnSaveManual.setText(R.string.fav_update)
-                        contentManual.isVisible = true
+                        setActiveSection("manual")
                         refreshButtons()
                     }
 
@@ -675,10 +698,13 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 }
             }
 
-            // Collapse/expand sub menu
-            headerPin.setOnClickListener { contentPin.isVisible = !contentPin.isVisible }
+            // Akordeon: tap header membuka miliknya & menutup pasangannya;
+            // tap lagi pada yang terbuka = menutup.
+            headerPin.setOnClickListener {
+                setActiveSection(if (contentPin.isVisible) null else "pin")
+            }
             headerManual.setOnClickListener {
-                contentManual.isVisible = !contentManual.isVisible
+                setActiveSection(if (contentManual.isVisible) null else "manual")
             }
 
             inputNamePin.addTextChangedListener(textWatcher { refreshButtons() })
@@ -695,7 +721,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 cur.add(Favorite(name, pos.latitude, pos.longitude))
                 persistFavorites(ch, cur)
                 clearPinInputs()
-                contentPin.isVisible = false // auto-hide setelah simpan
+                setActiveSection(null) // auto-hide setelah simpan
                 refreshList()
             }
 
@@ -715,7 +741,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 persistFavorites(ch, cur)
                 clearManualInputs()
                 resetManualToSave()
-                contentManual.isVisible = false // auto-hide setelah simpan/update
+                setActiveSection(null) // auto-hide setelah simpan/update
                 refreshList()
             }
 
@@ -731,6 +757,12 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             pageGjk.isVisible = ch == "gjk"
             styleTab(tabGrb, ch == "grb")
             styleTab(tabGjk, ch == "gjk")
+
+            // Ganti tab = sembunyikan isi DARI PIN & MANUAL di kedua halaman
+            view.findViewById<View>(R.id.content_pin_grb).isVisible = false
+            view.findViewById<View>(R.id.content_manual_grb).isVisible = false
+            view.findViewById<View>(R.id.content_pin_gjk).isVisible = false
+            view.findViewById<View>(R.id.content_manual_gjk).isVisible = false
         }
         tabGrb.setOnClickListener { switchFavTab("grb") }
         tabGjk.setOnClickListener { switchFavTab("gjk") }
