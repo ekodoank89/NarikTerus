@@ -87,7 +87,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private lateinit var tabSet: TextView
     private lateinit var pageChip: View
     private lateinit var pageSet: View
-    private lateinit val rowTargetGrb: View
+    private lateinit var rowTargetGrb: View
     private lateinit var rowMethodGrb: View
     private lateinit var rowTargetGjk: View
     private lateinit var rowMethodGjk: View
