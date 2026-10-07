@@ -22,4 +22,16 @@
     <string name="row_method_gjk">Metode hook GJK</string>
     <string name="value_methods_core">Inti saja (lat/lng)</string>
     <string name="toast_target_saved">Target disimpan. Centang paket ini di LSPosed → Scope, lalu force-stop aplikasinya.</string>
+    <string name="btn_favorite">Favorite</string>
+    <string name="btn_jitter">Pengaturan Jitter</string>
+    <string name="favorite_coming_soon">Coming soon</string>
+    <string name="jitter_title">Jitter</string>
+    <string name="jitter_tab_grb">GRB</string>
+    <string name="jitter_tab_gjk">GJK</string>
+    <string name="jitter_enabled">Jitter aktif: %1$s</string>
+    <string name="jitter_step">Langkah acak maks (meter)</string>
+    <string name="jitter_interval">Interval update (detik)</string>
+    <string name="jitter_radius">Batas radius (meter)</string>
+    <string name="jitter_save">Simpan</string>
+    <string name="jitter_cancel">Batal</string>
 </resources>
