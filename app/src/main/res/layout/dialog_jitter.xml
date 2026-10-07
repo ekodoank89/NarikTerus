@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical">
@@ -47,15 +46,12 @@
         android:paddingTop="6dp"
         android:paddingBottom="12dp">
 
-        <TextView
-            android:id="@+id/toggle_jitter_grb"
+        <Button
+            android:id="@+id/btn_default_grb"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:background="?attr/selectableItemBackground"
-            android:paddingBottom="6dp"
-            android:textColor="#1A73E8"
-            android:textSize="14sp"
-            android:textStyle="bold" />
+            android:layout_gravity="end"
+            android:text="@string/jitter_default" />
 
         <TextView
             android:id="@+id/label_step_grb"
@@ -70,7 +66,7 @@
             android:layout_height="wrap_content"
             android:stepSize="0.1"
             android:valueFrom="0.1"
-            android:valueTo="3.0" />
+            android:valueTo="5.0" />
 
         <TextView
             android:id="@+id/label_maxdist_grb"
@@ -85,7 +81,7 @@
             android:layout_height="wrap_content"
             android:stepSize="0.1"
             android:valueFrom="0.1"
-            android:valueTo="3.0" />
+            android:valueTo="5.0" />
 
         <TextView
             android:id="@+id/label_interval_grb"
@@ -114,15 +110,12 @@
         android:paddingBottom="12dp"
         android:visibility="gone">
 
-        <TextView
-            android:id="@+id/toggle_jitter_gjk"
+        <Button
+            android:id="@+id/btn_default_gjk"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:background="?attr/selectableItemBackground"
-            android:paddingBottom="6dp"
-            android:textColor="#1A73E8"
-            android:textSize="14sp"
-            android:textStyle="bold" />
+            android:layout_gravity="end"
+            android:text="@string/jitter_default" />
 
         <TextView
             android:id="@+id/label_step_gjk"
@@ -137,7 +130,7 @@
             android:layout_height="wrap_content"
             android:stepSize="0.1"
             android:valueFrom="0.1"
-            android:valueTo="3.0" />
+            android:valueTo="5.0" />
 
         <TextView
             android:id="@+id/label_maxdist_gjk"
@@ -152,7 +145,7 @@
             android:layout_height="wrap_content"
             android:stepSize="0.1"
             android:valueFrom="0.1"
-            android:valueTo="3.0" />
+            android:valueTo="5.0" />
 
         <TextView
             android:id="@+id/label_interval_gjk"
