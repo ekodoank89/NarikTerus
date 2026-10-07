@@ -113,8 +113,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private var showGjkChip = true
 
     // Konfigurasi fleksibel per channel
-    private var grbTarget = MainHook.DEFAULT_TARGET_GRB
-    private var gjkTarget = MainHook.DEFAULT_TARGET_GJK
+    private var grbTarget = HookContract.DEFAULT_TARGET_GRB
+    private var gjkTarget = HookContract.DEFAULT_TARGET_GJK
     private var grbMethods = 0L
     private var gjkMethods = 0L
 
@@ -358,7 +358,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     }
 
     private fun methodsLabel(mask: Long): String {
-        val active = MainHook.METHOD_DEFS
+        val active = HookContract.METHOD_DEFS
             .filter { (mask and it.first) != 0L }
             .map { it.second.substringBefore(" (") }
         return if (active.isEmpty()) getString(R.string.value_methods_core)
@@ -438,13 +438,13 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     /** Picker metode hook (multi-pilih). */
     private fun showMethodPicker(channel: String) {
         var sel = methodsFor(channel)
-        val names = MainHook.METHOD_DEFS.map { it.second }.toTypedArray()
-        val checked = MainHook.METHOD_DEFS.map { (sel and it.first) != 0L }.toBooleanArray()
+        val names = HookContract.METHOD_DEFS.map { it.second }.toTypedArray()
+        val checked = HookContract.METHOD_DEFS.map { (sel and it.first) != 0L }.toBooleanArray()
 
         AlertDialog.Builder(this)
             .setTitle("Metode hook ${channel.uppercase()}")
             .setMultiChoiceItems(names, checked) { _, which, isChecked ->
-                val flag = MainHook.METHOD_DEFS[which].first
+                val flag = HookContract.METHOD_DEFS[which].first
                 sel = if (isChecked) sel or flag else sel and flag.inv()
             }
             .setPositiveButton("Simpan") { _, _ -> applyMethods(channel, sel) }
@@ -572,12 +572,12 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         if (targetPkg.isNullOrEmpty()) return
         runCatching {
             sendBroadcast(
-                Intent(MainHook.ACTION_STATE).setPackage(targetPkg)
-                    .putExtra(MainHook.KEY_CHANNEL, channel)
-                    .putExtra(MainHook.KEY_PLAY, playing)
-                    .putExtra(MainHook.KEY_LAT, pos?.latitude ?: 0.0)
-                    .putExtra(MainHook.KEY_LNG, pos?.longitude ?: 0.0)
-                    .putExtra(MainHook.KEY_METHODS, methods)
+                Intent(HookContract.ACTION_STATE).setPackage(targetPkg)
+                    .putExtra(HookContract.KEY_CHANNEL, channel)
+                    .putExtra(HookContract.KEY_PLAY, playing)
+                    .putExtra(HookContract.KEY_LAT, pos?.latitude ?: 0.0)
+                    .putExtra(HookContract.KEY_LNG, pos?.longitude ?: 0.0)
+                    .putExtra(HookContract.KEY_METHODS, methods)
             )
         }
     }
