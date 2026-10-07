@@ -108,7 +108,7 @@ class MainHook : IXposedHookLoadPackage {
         synchronized(stateLock) {
             if (force || now - lastRefreshAt >= REFRESH_INTERVAL_MS) {
                 lastRefreshAt = now
-                val st = readFromProvider() ?: readFromPrefs()
+                val st = readFromPrefs() ?: readFromProvider()
                     ?: State(false, 0.0, 0.0, "none")
                 if (st.playing != cached.playing) {
                     XposedBridge.log(
