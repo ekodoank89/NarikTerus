@@ -1,5 +1,6 @@
 package com.narik.terus
 
+import android.app.AndroidAppHelper
 import android.app.Application
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -15,18 +16,16 @@ import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Hook di proses target:
- * - Spoof lokasi (state dari broadcast ACTION_STATE).
- * - Auto-stop: RemoteMessage.getData() (FCM) dicek terhadap kata kunci
- *   trigger channel (dibawa di setiap ACTION_STATE). Saat cocok ->
- *   state OFF seketika + broadcast ACTION_TRIGGER ke modul.
- * - Setiap payload FCM juga dikirim via ACTION_RECENT untuk daftar recent.
+ * - Spoof lokasi (state dari broadcast ACTION_STATE, termasuk kata kunci trigger).
+ * - Auto-stop: RemoteMessage.getData() / handleIntent (FCM) dicek terhadap
+ *   kata kunci channel. Cocok -> spoof OFF seketika + ACTION_TRIGGER ke modul.
+ * - Setiap payload FCM dikirim via ACTION_RECENT (daftar recent di modul).
  */
 class MainHook : IXposedHookLoadPackage {
 
     companion object {
         private const val SERVE_LOG_INTERVAL_MS = 10_000L
         private const val RECENT_LOG_INTERVAL_MS = 3_000L
-        private const val MAX_TRIGGER_WORDS = 8
     }
 
     data class State(
@@ -34,7 +33,7 @@ class MainHook : IXposedHookLoadPackage {
         val lat: Double,
         val lng: Double,
         val methods: Long,
-        val triggerKeywords: String   // kosong = nonaktif
+        val triggerKeywords: String
     )
 
     @Volatile
@@ -210,43 +209,41 @@ class MainHook : IXposedHookLoadPackage {
 
     // ------------------------------------------------------- FCM trigger
 
-    /** Fallback: payload dari objek RemoteMessage (jika kelasnya ada). */
-    private fun extractFromRemoteMessage(obj: Any?): String? {
+    private fun extractFromRemoteMessage(obj: Any?): String? = try {
+        val data = XposedHelpers.callMethod(obj, "getData") as? Map<*, *>
+        if (data.isNullOrEmpty()) null else data.toString()
+    } catch (_: Throwable) {
+        null
+    }
+
+    private fun extractFromBundle(bundle: android.os.Bundle?): String? {
+        if (bundle == null || bundle.isEmpty) return null
         return try {
-            val data = XposedHelpers.callMethod(obj, "getData") as? Map<*, *> ?: return null
-            if (data.isEmpty()) null else data.toString()
+            bundle.keySet().joinToString(",") { "$it=${bundle.get(it)}" }
         } catch (_: Throwable) {
             null
         }
     }
 
-    /** Fallback: bundle pesan (jalur lama / IntentService). */
-    private fun extractFromBundle(bundle: android.os.Bundle?): String? {
-        if (bundle == null || bundle.isEmpty) return null
-        return try { bundle.keySet().joinToString(",") { "$it=${bundle.get(it)}" } } catch (_: Throwable) { null }
-    }
-
     private fun hookFcm(cl: ClassLoader) {
-        // 1) onMessageReceived(RemoteMessage) — semua subclass FirebaseMessagingService
         try {
             val fcmBase = XposedHelpers.findClass(
                 "com.google.firebase.messaging.FirebaseMessagingService", cl
             )
+            val remoteMsg = XposedHelpers.findClass(
+                "com.google.firebase.messaging.RemoteMessage", cl
+            )
             XposedHelpers.findAndHookMethod(
-                fcmBase, "onMessageReceived",
-                XposedHelpers.findClass("com.google.firebase.messaging.RemoteMessage", cl),
+                fcmBase, "onMessageReceived", remoteMsg,
                 object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
-                        val payload = extractFromRemoteMessage(param.args.firstOrNull())
-                        handlePayload(payload)
+                        handlePayload(extractFromRemoteMessage(param.args.firstOrNull()))
                     }
                 }
             )
         } catch (_: Throwable) {
         }
 
-        // 2) handleIntent(Intent) — jalur notifikasi/data yang TIDAK lewat
-        //    onMessageReceived (app background) — payload ada di extras.
         try {
             val fcmBase = XposedHelpers.findClass(
                 "com.google.firebase.messaging.FirebaseMessagingService", cl
@@ -256,21 +253,7 @@ class MainHook : IXposedHookLoadPackage {
                 object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
                         val i = param.args.firstOrNull() as? Intent ?: return
-                        val bundle = i.extras
-                        var payload = extractFromBundle(bundle)
-                        // "gcm.n.e" dsb. terkompres; bongko key asli bila ada
-                        if (payload == null) {
-                            try {
-                                val w = XposedHelpers.callStaticMethod(
-                                    XposedHelpers.findClass(
-                                        "com.google.firebase.messaging.Constants", cl
-                                    ),
-                                    "encodeTag"
-                                )
-                            } catch (_: Throwable) {
-                            }
-                        }
-                        handlePayload(payload)
+                        handlePayload(extractFromBundle(i.extras))
                     }
                 }
             )
@@ -278,46 +261,41 @@ class MainHook : IXposedHookLoadPackage {
         }
     }
 
-    /** Evaluasi payload: recent + cek kata kunci trigger. */
     private fun handlePayload(payload: String?) {
         if (payload.isNullOrEmpty()) return
         val st = state ?: return
         val ch = channel ?: return
 
-        // Kirim payload ke daftar recent (throttle 3 dtk agar tidak banjir)
+        // Recent: selalu diteruskan ke modul (daftar dapat disalin)
         val now = System.currentTimeMillis()
         if (now - lastRecentLog.get() >= RECENT_LOG_INTERVAL_MS) {
             lastRecentLog.set(now)
-            sendToModule(HookContract.ACTION_RECENT, ch, payload)
             XposedBridge.log("[NarikTerus] $ch FCM payload: $payload")
-        } else {
-            sendToModule(HookContract.ACTION_RECENT, ch, payload)
         }
+        sendToModule(HookContract.ACTION_RECENT, ch, payload, false)
 
-        // Cek kata kunci (case-insensitive, dipisah koma)
+        // Trigger: cocok kata kunci -> auto-stop
         val keywords = st.triggerKeywords.split(',')
             .map { it.trim() }
             .filter { it.isNotEmpty() }
         if (keywords.isEmpty() || !st.playing) return
 
         val lower = payload.lowercase()
-        val hit = keywords.any { lower.contains(it.lowercase()) }
-        if (hit) {
+        if (keywords.any { lower.contains(it.lowercase()) }) {
             XposedBridge.log("[NarikTerus] $ch: TRIGGER ORDER MASUK -> auto-stop")
             state = st.copy(playing = false)
-            sendToModule(HookContract.ACTION_TRIGGER, ch, payload)
+            sendToModule(HookContract.ACTION_TRIGGER, ch, payload, true)
         }
     }
 
-    private fun sendToModule(action: String, ch: String, payload: String) {
+    private fun sendToModule(action: String, ch: String, payload: String, matched: Boolean) {
         try {
-            val app = AndroidAppHelper.currentApplication()
-                ?: return
+            val app = AndroidAppHelper.currentApplication() ?: return
             app.sendBroadcast(
                 Intent(action).setPackage(HookContract.MODULE_PKG)
                     .putExtra(HookContract.KEY_CHANNEL, ch)
                     .putExtra(HookContract.KEY_PAYLOAD, payload)
-                    .putExtra(HookContract.KEY_MATCHED, action == HookContract.ACTION_TRIGGER)
+                    .putExtra(HookContract.KEY_MATCHED, matched)
             )
         } catch (t: Throwable) {
             XposedBridge.log("[NarikTerus] kirim $action gagal: $t")
