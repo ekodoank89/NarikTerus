@@ -168,7 +168,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private var grbJitterRunning = false
     private var gjkJitterRunning = false
     private val jitterHandler = Handler(Looper.getMainLooper())
-    /** Penerima trigger auto-stop dari hook (order masuk) — real-time. */
+    /** Penerima trigger auto-stop (order masuk) — real-time saat UI hidup. */
     private val triggerReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action != HookContract.ACTION_TRIGGER) return
@@ -178,6 +178,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             }
         }
     }
+    
     private val random = Random()
 
     private val statePrefs by lazy { getSharedPreferences(PREFS_NAME, MODE_PRIVATE) }
@@ -1155,11 +1156,11 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         }
     }
 
-        private fun jitterTick(channel: String) {
+    private fun jitterTick(channel: String) {
         val running = if (channel == "grb") grbJitterRunning else gjkJitterRunning
         if (!running) return
-        // Guard auto-stop: bila prefs sudah play=false (trigger order masuk),
-        // matikan mesin — jangan pernah mengirim ON lagi.
+        // Pengaman auto-stop: bila prefs sudah play=false (order masuk),
+        // matikan mesin — JANGAN pernah mengirim ON lagi.
         if (!statePrefs.getBoolean("${channel}_play", false)) {
             stopJitter(channel)
             return
