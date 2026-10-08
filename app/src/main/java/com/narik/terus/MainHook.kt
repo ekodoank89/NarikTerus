@@ -17,15 +17,17 @@ import java.util.concurrent.atomic.AtomicLong
 /**
  * Hook di proses target:
  * - Spoof lokasi (state dari broadcast ACTION_STATE, termasuk kata kunci trigger).
- * - Auto-stop: RemoteMessage.getData() / handleIntent (FCM) dicek terhadap
- *   kata kunci channel. Cocok -> spoof OFF seketika + ACTION_TRIGGER ke modul.
- * - Setiap payload FCM dikirim via ACTION_RECENT (daftar recent di modul).
+ * - Auto-stop: payload FCM dicek terhadap kata kunci channel. Cocok ->
+ *   spoof OFF seketika + ACTION_TRIGGER ke modul.
+ * - Payload yang tiba SEBELUM penugasan channel (push antrean FCM saat app
+ *   baru dibuka) TIDAK dibuang: dicadangkan lalu dievaluasi begitu state tiba.
  */
 class MainHook : IXposedHookLoadPackage {
 
     companion object {
         private const val SERVE_LOG_INTERVAL_MS = 10_000L
         private const val RECENT_LOG_INTERVAL_MS = 3_000L
+        private const val MAX_PENDING = 10
     }
 
     data class State(
@@ -44,6 +46,9 @@ class MainHook : IXposedHookLoadPackage {
 
     private val lastServeLog = AtomicLong(0L)
     private val lastRecentLog = AtomicLong(0L)
+
+    /** Payload yang tiba sebelum state/penugasan tiba (maks 10 terakhir). */
+    private val pendingPayloads = mutableListOf<String>()
 
     override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
         hookLocation(lpparam.classLoader)
@@ -94,6 +99,19 @@ class MainHook : IXposedHookLoadPackage {
                             (if (playing) "ON ($lat, $lng)" else "OFF") +
                             " metode=$methods trigger='$trigger'"
                     )
+                }
+
+                // Evaluasi payload yang tunda selama menunggu state
+                val pending = synchronized(pendingPayloads) {
+                    val copy = pendingPayloads.toList()
+                    pendingPayloads.clear()
+                    copy
+                }
+                if (pending.isNotEmpty()) {
+                    XposedBridge.log(
+                        "[NarikTerus] $newChannel: mengevaluasi ${pending.size} payload awal"
+                    )
+                    for (p in pending) evaluatePayload(p)
                 }
             }
         }
@@ -226,6 +244,8 @@ class MainHook : IXposedHookLoadPackage {
     }
 
     private fun hookFcm(cl: ClassLoader) {
+        var ok1 = false
+        var ok2 = false
         try {
             val fcmBase = XposedHelpers.findClass(
                 "com.google.firebase.messaging.FirebaseMessagingService", cl
@@ -241,9 +261,10 @@ class MainHook : IXposedHookLoadPackage {
                     }
                 }
             )
-        } catch (_: Throwable) {
+            ok1 = true
+        } catch (t: Throwable) {
+            XposedBridge.log("[NarikTerus] FCM onMessageReceived gagal: $t")
         }
-
         try {
             val fcmBase = XposedHelpers.findClass(
                 "com.google.firebase.messaging.FirebaseMessagingService", cl
@@ -257,12 +278,29 @@ class MainHook : IXposedHookLoadPackage {
                     }
                 }
             )
-        } catch (_: Throwable) {
+            ok2 = true
+        } catch (t: Throwable) {
+            XposedBridge.log("[NarikTerus] FCM handleIntent gagal: $t")
         }
+        // VISIBILITAS: selalu catat status attach agar bisa didiagnosis
+        XposedBridge.log("[NarikTerus] FCM hook: onMessageReceived=$ok1 handleIntent=$ok2")
     }
 
+    /** Titik masuk payload: bila state belum tiba, cadangkan — jangan buang. */
     private fun handlePayload(payload: String?) {
         if (payload.isNullOrEmpty()) return
+        if (channel == null || state == null) {
+            synchronized(pendingPayloads) {
+                pendingPayloads.add(payload)
+                if (pendingPayloads.size > MAX_PENDING) pendingPayloads.removeAt(0)
+            }
+            XposedBridge.log("[NarikTerus] payload awal dicadangkan (state belum tiba): $payload")
+            return
+        }
+        evaluatePayload(payload)
+    }
+
+    private fun evaluatePayload(payload: String) {
         val st = state ?: return
         val ch = channel ?: return
 
