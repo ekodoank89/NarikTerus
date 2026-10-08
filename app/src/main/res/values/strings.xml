@@ -58,4 +58,7 @@
     <string name="recent_title">Triger Recent (tap = salin)</string>
     <string name="recent_empty">Belum ada payload tercatat</string>
     <string name="recent_copied">Disalin ke clipboard</string>
+    <string name="row_notif_perm">Izin Notifikasi</string>
+    <string name="notif_on">AKTIF</string>
+    <string name="notif_off">BELUM DIIZINKAN — tap untuk buka pengaturan</string>
 </resources>
