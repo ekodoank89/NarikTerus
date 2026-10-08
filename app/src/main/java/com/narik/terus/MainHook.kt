@@ -105,16 +105,15 @@ class MainHook : IXposedHookLoadPackage {
                 val methods = intent.getLongExtra(HookContract.KEY_METHODS, 0L)
                 val trigger = intent.getStringExtra("trigger_keywords") ?: ""
                 val triggerEnabled = intent.getBooleanExtra("trigger_enabled", true)
+                val stopMode = intent.getStringExtra("stopmode") ?: "notif"
                 val oldPlaying = state?.playing
-                val triggerEnabled = intent.getBooleanExtra("trigger_enabled", true)
-                val stopMode = intent.getStringExtra("stopmode") ?: "notif"   // ← baru
                 channel = newChannel
                 state = State(playing, lat, lng, methods, trigger, triggerEnabled, stopMode)
                 if (oldPlaying != playing || oldPlaying == null) {
                     XposedBridge.log(
                         "[NarikTerus] $newChannel: state -> " +
                             (if (playing) "ON ($lat, $lng)" else "OFF") +
-                            " metode=$methods trigger='$trigger' aktif=$triggerEnabled"
+                            " metode=$methods trigger='$trigger' aktif=$triggerEnabled mode=$stopMode"
                     )
                 }
 
