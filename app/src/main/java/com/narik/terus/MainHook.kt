@@ -37,7 +37,8 @@ class MainHook : IXposedHookLoadPackage {
         val lat: Double,
         val lng: Double,
         val methods: Long,
-        val triggerKeywords: String
+        val triggerKeywords: String,
+        val triggerEnabled: Boolean   // ← baru
     )
 
     @Volatile
@@ -97,9 +98,11 @@ class MainHook : IXposedHookLoadPackage {
                 val lng = intent.getDoubleExtra(HookContract.KEY_LNG, 0.0)
                 val methods = intent.getLongExtra(HookContract.KEY_METHODS, 0L)
                 val trigger = intent.getStringExtra("trigger_keywords") ?: ""
+                val triggerEnabled = intent.getBooleanExtra("trigger_enabled", true)
                 val oldPlaying = state?.playing
                 channel = newChannel
-                state = State(playing, lat, lng, methods, trigger)
+                state = State(playing, lat, lng, methods, trigger, triggerEnabled)
+                
                 if (oldPlaying != playing || oldPlaying == null) {
                     XposedBridge.log(
                         "[NarikTerus] $newChannel: state -> " +
@@ -361,12 +364,14 @@ class MainHook : IXposedHookLoadPackage {
             lastRecentLog.set(now)
             XposedBridge.log("[NarikTerus] $ch payload: $payload")
         }
+        // Recent tetap direkam walau switch MATI
         sendToModule(HookContract.ACTION_RECENT, ch, payload, false)
 
         val keywords = st.triggerKeywords.split(',')
             .map { it.trim() }
             .filter { it.isNotEmpty() }
-        if (keywords.isEmpty() || !st.playing) return
+        if (keywords.isEmpty() || !st.playing || !st.triggerEnabled) return  // ← switch dihormati
+        // ... pencocokan seperti sebelumnya
 
         val lower = payload.lowercase()
         if (keywords.any { lower.contains(it.lowercase()) }) {
