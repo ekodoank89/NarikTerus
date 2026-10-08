@@ -37,6 +37,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
@@ -124,6 +125,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private lateinit var rowMethodGjk: View
     private lateinit var rowTriggerGrb: View
     private lateinit var rowTriggerGjk: View
+    private lateinit var rowNotifPerm: View
+    private lateinit var valNotifPerm: TextView
     private lateinit var valTargetGrb: TextView
     private lateinit var valMethodGrb: TextView
     private lateinit var valTargetGjk: TextView
@@ -218,6 +221,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         rowMethodGjk = findViewById(R.id.row_method_gjk)
         rowTriggerGrb = findViewById(R.id.row_trigger_grb)
         rowTriggerGjk = findViewById(R.id.row_trigger_gjk)
+        rowNotifPerm = findViewById(R.id.row_notif_perm)
+        valNotifPerm = findViewById(R.id.val_notif_perm)
         valTargetGrb = findViewById(R.id.val_target_grb)
         valMethodGrb = findViewById(R.id.val_method_grb)
         valTargetGjk = findViewById(R.id.val_target_gjk)
@@ -291,6 +296,9 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         rowMethodGjk.setOnClickListener { showMethodPicker("gjk") }
         rowTriggerGrb.setOnClickListener { showTriggerEditor("grb") }
         rowTriggerGjk.setOnClickListener { showTriggerEditor("gjk") }
+        rowNotifPerm.setOnClickListener {
+            startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+        }
 
         btnCloseMenu.setOnClickListener {
             menuPanel.isVisible = false
@@ -530,6 +538,9 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         valMethodGjk.text = methodsLabel(gjkMethods)
         valTriggerGrb.text = triggerFor("grb").ifEmpty { "(nonaktif)" }
         valTriggerGjk.text = triggerFor("gjk").ifEmpty { "(nonaktif)" }
+        valNotifPerm.text = if (NotificationManagerCompat
+                .getEnabledListenerPackages(this).contains(packageName)
+        ) getString(R.string.notif_on) else getString(R.string.notif_off)
     }
 
     private fun methodsLabel(mask: Long): String {
