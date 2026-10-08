@@ -7,9 +7,8 @@ import android.content.Intent
 /**
  * Menjawab ACTION_QUERY dari proses target: menetapkan channel
  * berdasarkan <channel>_target di prefs modul, lalu membalas
- * ACTION_STATE (channel + play + koordinat + metode + KATA KUNCI TRIGGER).
- * Trigger wajib ikut agar auto-stop tetap hidup setelah app target
- * di-restart (jalur PULL ini satu-satunya sumber state saat itu).
+ * ACTION_STATE (channel + play + koordinat + metode + kata kunci
+ * trigger + status saklar trigger).
  */
 class StateQueryReceiver : BroadcastReceiver() {
 
@@ -25,10 +24,6 @@ class StateQueryReceiver : BroadcastReceiver() {
         }
 
         runCatching {
-                    .putExtra(
-                        "trigger_enabled",
-                        prefs.getBoolean("${channel}_trigger_enabled", true)
-                    )
             context.sendBroadcast(
                 Intent(HookContract.ACTION_STATE).setPackage(senderPkg)
                     .putExtra(HookContract.KEY_CHANNEL, channel)
@@ -45,6 +40,10 @@ class StateQueryReceiver : BroadcastReceiver() {
                     .putExtra(
                         "trigger_keywords",
                         prefs.getString("${channel}_trigger", "") ?: ""
+                    )
+                    .putExtra(
+                        "trigger_enabled",
+                        prefs.getBoolean("${channel}_trigger_enabled", true)
                     )
             )
         }
