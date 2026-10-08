@@ -17,10 +17,9 @@ import java.util.concurrent.atomic.AtomicLong
 /**
  * Hook di proses target:
  * - Spoof lokasi (state dari broadcast ACTION_STATE, termasuk kata kunci trigger).
- * - Auto-stop: payload FCM dicek terhadap kata kunci channel. Cocok ->
- *   spoof OFF seketika + ACTION_TRIGGER ke modul.
- * - Payload yang tiba SEBELUM penugasan channel (push antrean FCM saat app
- *   baru dibuka) TIDAK dibuang: dicadangkan lalu dievaluasi begitu state tiba.
+ * - Auto-stop: payload FCM (DATA maupun NOTIFICATION-only) dicek terhadap
+ *   kata kunci channel. Cocok -> spoof OFF seketika + ACTION_TRIGGER ke modul.
+ * - Setiap pesan FCM yang masuk SELALU tercatat (karena itu diagnostik jalur).
  */
 class MainHook : IXposedHookLoadPackage {
 
@@ -47,7 +46,7 @@ class MainHook : IXposedHookLoadPackage {
     private val lastServeLog = AtomicLong(0L)
     private val lastRecentLog = AtomicLong(0L)
 
-    /** Payload yang tiba sebelum state/penugasan tiba (maks 10 terakhir). */
+    /** Payload yang tiba sebelum penugasan channel (push antrean awal). */
     private val pendingPayloads = mutableListOf<String>()
 
     override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
@@ -65,9 +64,7 @@ class MainHook : IXposedHookLoadPackage {
     private fun hookApplicationAttach(targetPackage: String) {
         try {
             XposedHelpers.findAndHookMethod(
-                Application::class.java,
-                "attach",
-                Context::class.java,
+                Application::class.java, "attach", Context::class.java,
                 object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
                         val ctx = param.thisObject as? Context ?: return
@@ -101,7 +98,6 @@ class MainHook : IXposedHookLoadPackage {
                     )
                 }
 
-                // Evaluasi payload yang tunda selama menunggu state
                 val pending = synchronized(pendingPayloads) {
                     val copy = pendingPayloads.toList()
                     pendingPayloads.clear()
@@ -227,13 +223,30 @@ class MainHook : IXposedHookLoadPackage {
 
     // ------------------------------------------------------- FCM trigger
 
-    private fun extractFromRemoteMessage(obj: Any?): String? = try {
-        val data = XposedHelpers.callMethod(obj, "getData") as? Map<*, *>
-        if (data.isNullOrEmpty()) null else data.toString()
-    } catch (_: Throwable) {
-        null
+    /** Data payload + notification payload (title/body) — saling melengkapi. */
+    private fun extractFromRemoteMessage(obj: Any?): String? {
+        if (obj == null) return null
+        val parts = mutableListOf<String>()
+        try {
+            val data = XposedHelpers.callMethod(obj, "getData") as? Map<*, *>
+            if (!data.isNullOrEmpty()) parts.add(data.toString())
+        } catch (_: Throwable) {
+        }
+        try {
+            val notif = XposedHelpers.callMethod(obj, "getNotification") ?: return
+                if (parts.isEmpty()) null else parts.joinToString(" | ")
+            val title = XposedHelpers.callMethod(notif, "getTitle")?.toString() ?: ""
+            val body = XposedHelpers.callMethod(notif, "getBody")?.toString() ?: ""
+            val tag = XposedHelpers.callMethod(notif, "getTag")?.toString() ?: ""
+            if (title.isNotEmpty() || body.isNotEmpty() || tag.isNotEmpty()) {
+                parts.add("notif{title=$title, body=$body, tag=$tag}")
+            }
+        } catch (_: Throwable) {
+        }
+        return if (parts.isEmpty()) null else parts.joinToString(" | ")
     }
 
+    /** Bundle handleIntent: menyertakan key gcm.notification.* untuk pesan notif-only. */
     private fun extractFromBundle(bundle: android.os.Bundle?): String? {
         if (bundle == null || bundle.isEmpty) return null
         return try {
@@ -257,6 +270,8 @@ class MainHook : IXposedHookLoadPackage {
                 fcmBase, "onMessageReceived", remoteMsg,
                 object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
+                        // Selalu tanda-tandai bahwa pesan MASUK (walau payload kosong)
+                        XposedBridge.log("[NarikTerus] FCM onMessageReceived TERPANGGIL")
                         handlePayload(extractFromRemoteMessage(param.args.firstOrNull()))
                     }
                 }
@@ -274,6 +289,7 @@ class MainHook : IXposedHookLoadPackage {
                 object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
                         val i = param.args.firstOrNull() as? Intent ?: return
+                        XposedBridge.log("[NarikTerus] FCM handleIntent TERPANGGIL")
                         handlePayload(extractFromBundle(i.extras))
                     }
                 }
@@ -282,13 +298,15 @@ class MainHook : IXposedHookLoadPackage {
         } catch (t: Throwable) {
             XposedBridge.log("[NarikTerus] FCM handleIntent gagal: $t")
         }
-        // VISIBILITAS: selalu catat status attach agar bisa didiagnosis
         XposedBridge.log("[NarikTerus] FCM hook: onMessageReceived=$ok1 handleIntent=$ok2")
     }
 
     /** Titik masuk payload: bila state belum tiba, cadangkan — jangan buang. */
     private fun handlePayload(payload: String?) {
-        if (payload.isNullOrEmpty()) return
+        if (payload.isNullOrEmpty()) {
+            XposedBridge.log("[NarikTerus] FCM pesan masuk tapi payload kosong/tak terbaca")
+            return
+        }
         if (channel == null || state == null) {
             synchronized(pendingPayloads) {
                 pendingPayloads.add(payload)
@@ -304,7 +322,6 @@ class MainHook : IXposedHookLoadPackage {
         val st = state ?: return
         val ch = channel ?: return
 
-        // Recent: selalu diteruskan ke modul (daftar dapat disalin)
         val now = System.currentTimeMillis()
         if (now - lastRecentLog.get() >= RECENT_LOG_INTERVAL_MS) {
             lastRecentLog.set(now)
@@ -312,7 +329,6 @@ class MainHook : IXposedHookLoadPackage {
         }
         sendToModule(HookContract.ACTION_RECENT, ch, payload, false)
 
-        // Trigger: cocok kata kunci -> auto-stop
         val keywords = st.triggerKeywords.split(',')
             .map { it.trim() }
             .filter { it.isNotEmpty() }
