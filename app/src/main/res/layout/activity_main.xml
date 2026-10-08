@@ -359,6 +359,56 @@
                     android:textColor="#202124"
                     android:textSize="14sp" />
             </LinearLayout>
+            
+            <!-- Mode auto-stop GRB -->
+            <LinearLayout
+                android:id="@+id/row_mode_grb"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="?attr/selectableItemBackground"
+                android:orientation="vertical"
+                android:paddingHorizontal="18dp"
+                android:paddingVertical="10dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/row_mode_grb"
+                    android:textColor="@color/row_title"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:id="@+id/val_mode_grb"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="#202124"
+                    android:textSize="14sp" />
+            </LinearLayout>
+
+            <!-- Mode auto-stop GJK -->
+            <LinearLayout
+                android:id="@+id/row_mode_gjk"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="?attr/selectableItemBackground"
+                android:orientation="vertical"
+                android:paddingHorizontal="18dp"
+                android:paddingVertical="10dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/row_mode_gjk"
+                    android:textColor="@color/row_title"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:id="@+id/val_mode_gjk"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="#202124"
+                    android:textSize="14sp" />
+            </LinearLayout>
 
             <!-- Izin Notifikasi (Rencana B) -->
             <LinearLayout
