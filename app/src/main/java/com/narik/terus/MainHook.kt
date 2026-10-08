@@ -8,6 +8,9 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
 import android.os.Bundle
+import android.view.View
+import android.view.ViewGroup
+import android.view.WindowManager
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
@@ -17,11 +20,11 @@ import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Hook di proses target:
- * - Spoof lokasi (state dari broadcast ACTION_STATE, termasuk kata kunci trigger).
- * - Auto-stop jalur 1: payload FCM (data maupun notification-only).
- * - Auto-stop jalur 2: Activity.onCreate — setiap layar yang terbuka dicatat;
- *   kelas yang cocok kata kunci (mis. layar order Grab) memicu auto-stop.
- * - Semua payload/aktivitas masuk ke Recent (dapat disalin dari UI modul).
+ * - Spoof lokasi (state dari broadcast ACTION_STATE, termasuk trigger).
+ * - Auto-stop 4 jalur: FCM payload, Activity onCreate/onResume/onNewIntent,
+ *   dan WindowManager.addView (menangkap overlay/dialog/popup — termasuk
+ *   layar order on-top Grab yang bukan Activity).
+ * - Semua kejadian dikirim ke Recent (dapat disalin dari UI modul).
  */
 class MainHook : IXposedHookLoadPackage {
 
@@ -29,7 +32,7 @@ class MainHook : IXposedHookLoadPackage {
         private const val SERVE_LOG_INTERVAL_MS = 10_000L
         private const val RECENT_LOG_INTERVAL_MS = 3_000L
         private const val MAX_PENDING = 10
-        private const val ACT_LOG_INTERVAL_MS = 1_000L
+        private const val EVENT_LOG_INTERVAL_MS = 1_000L
     }
 
     data class State(
@@ -38,7 +41,7 @@ class MainHook : IXposedHookLoadPackage {
         val lng: Double,
         val methods: Long,
         val triggerKeywords: String,
-        val triggerEnabled: Boolean   // ← baru
+        val triggerEnabled: Boolean
     )
 
     @Volatile
@@ -49,13 +52,12 @@ class MainHook : IXposedHookLoadPackage {
 
     private val lastServeLog = AtomicLong(0L)
     private val lastRecentLog = AtomicLong(0L)
-    private val lastActLog = AtomicLong(0L)
+    private val lastEventLog = AtomicLong(0L)
 
     /** Payload yang tiba sebelum penugasan channel (push antrean awal). */
     private val pendingPayloads = mutableListOf<String>()
 
     override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
-        // Kurangi noise: proses webview tidak perlu hook FCM/Activity
         val isNoise = lpparam.packageName == "com.google.android.webview"
 
         hookLocation(lpparam.classLoader)
@@ -63,6 +65,7 @@ class MainHook : IXposedHookLoadPackage {
         if (!isNoise) {
             hookFcm(lpparam.classLoader)
             hookActivities(lpparam.classLoader)
+            hookWindows(lpparam.classLoader)
         }
         hookApplicationAttach(lpparam.packageName)
         XposedBridge.log(
@@ -102,12 +105,11 @@ class MainHook : IXposedHookLoadPackage {
                 val oldPlaying = state?.playing
                 channel = newChannel
                 state = State(playing, lat, lng, methods, trigger, triggerEnabled)
-                
                 if (oldPlaying != playing || oldPlaying == null) {
                     XposedBridge.log(
                         "[NarikTerus] $newChannel: state -> " +
                             (if (playing) "ON ($lat, $lng)" else "OFF") +
-                            " metode=$methods trigger='$trigger'"
+                            " metode=$methods trigger='$trigger' aktif=$triggerEnabled"
                     )
                 }
 
@@ -234,32 +236,87 @@ class MainHook : IXposedHookLoadPackage {
         }
     }
 
-    // ------------------------------------------------- Activity lifecycle
+    // ------------------------------------- Activity lifecycle (3 momen)
 
-    /**
-     * Setiap Activity yang dibuat dicatat (nama kelas). Layar order Grab
-     * (overlay on-top) adalah Activity — saat dibuka dan kelasnya cocok
-     * kata kunci -> auto-stop.
-     */
+    private fun logThrottled(payload: String) {
+        val now = System.currentTimeMillis()
+        if (now - lastEventLog.get() >= EVENT_LOG_INTERVAL_MS) {
+            lastEventLog.set(now)
+            XposedBridge.log("[NarikTerus] $payload")
+        }
+    }
+
     private fun hookActivities(cl: ClassLoader) {
         try {
+            val activityCls = XposedHelpers.findClass("android.app.Activity", cl)
+
+            // 1) onCreate — layar baru
             XposedHelpers.findAndHookMethod(
-                "android.app.Activity", cl, "onCreate", Bundle::class.java,
+                activityCls, "onCreate", Bundle::class.java,
                 object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
-                        val activity = param.thisObject ?: return
-                        val cls = activity.javaClass.name
-                        val now = System.currentTimeMillis()
-                        if (now - lastActLog.get() >= ACT_LOG_INTERVAL_MS) {
-                            lastActLog.set(now)
-                            XposedBridge.log("[NarikTerus] ACT{cls=$cls}")
-                        }
-                        handlePayload("ACT{cls=$cls}")
+                        val payload = "ACT{cls=${param.thisObject?.javaClass?.name}}"
+                        logThrottled(payload)
+                        handlePayload(payload)
+                    }
+                }
+            )
+
+            // 2) onResume — layar yang dibawa ke depan TANPA dibuat ulang
+            XposedHelpers.findAndHookMethod(
+                activityCls, "onResume",
+                object : XC_MethodHook() {
+                    override fun afterHookedMethod(param: MethodHookParam) {
+                        val payload = "RES{cls=${param.thisObject?.javaClass?.name}}"
+                        logThrottled(payload)
+                        handlePayload(payload)
+                    }
+                }
+            )
+
+            // 3) onNewIntent — layar existing menerima intent baru (order!)
+            XposedHelpers.findAndHookMethod(
+                activityCls, "onNewIntent", Intent::class.java,
+                object : XC_MethodHook() {
+                    override fun afterHookedMethod(param: MethodHookParam) {
+                        val payload = "NEWINTENT{cls=${param.thisObject?.javaClass?.name}}"
+                        logThrottled(payload)
+                        handlePayload(payload)
                     }
                 }
             )
         } catch (t: Throwable) {
-            XposedBridge.log("[NarikTerus] gagal hook Activity.onCreate: $t")
+            XposedBridge.log("[NarikTerus] gagal hook Activity: $t")
+        }
+    }
+
+    // ------------------------- WindowManager (overlay/dialog/popup)
+
+    /**
+     * SEMUA jendela baru melewati sini: dialog, popup Compose, dan
+     * TYPE_APPLICATION_OVERLAY (layar order on-top yang tak tertib app lain).
+     * type=2038 adalah konstanta sistem — TIDAK mungkin di-obfuscate.
+     */
+    private fun hookWindows(cl: ClassLoader) {
+        try {
+            val wmi = XposedHelpers.findClass("android.view.WindowManagerImpl", cl)
+            XposedHelpers.findAndHookMethod(
+                wmi, "addView",
+                View::class.java,
+                ViewGroup.LayoutParams::class.java,
+                object : XC_MethodHook() {
+                    override fun afterHookedMethod(param: MethodHookParam) {
+                        val view = param.args.getOrNull(0) ?: return
+                        val p = param.args.getOrNull(1) as? ViewGroup.LayoutParams ?: return
+                        val type = if (p is WindowManager.LayoutParams) p.type else -1
+                        val payload = "WIN{cls=${view.javaClass.name}, type=$type}"
+                        logThrottled(payload)
+                        handlePayload(payload)
+                    }
+                }
+            )
+        } catch (t: Throwable) {
+            XposedBridge.log("[NarikTerus] gagal hook WindowManager: $t")
         }
     }
 
@@ -311,7 +368,6 @@ class MainHook : IXposedHookLoadPackage {
                 fcmBase, "onMessageReceived", remoteMsg,
                 object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
-                        XposedBridge.log("[NarikTerus] FCM onMessageReceived TERPANGGIL")
                         handlePayload(extractFromRemoteMessage(param.args.firstOrNull()))
                     }
                 }
@@ -329,7 +385,6 @@ class MainHook : IXposedHookLoadPackage {
                 object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
                         val i = param.args.firstOrNull() as? Intent ?: return
-                        XposedBridge.log("[NarikTerus] FCM handleIntent TERPANGGIL")
                         handlePayload(extractFromBundle(i.extras))
                     }
                 }
@@ -364,14 +419,12 @@ class MainHook : IXposedHookLoadPackage {
             lastRecentLog.set(now)
             XposedBridge.log("[NarikTerus] $ch payload: $payload")
         }
-        // Recent tetap direkam walau switch MATI
         sendToModule(HookContract.ACTION_RECENT, ch, payload, false)
 
         val keywords = st.triggerKeywords.split(',')
             .map { it.trim() }
             .filter { it.isNotEmpty() }
-        if (keywords.isEmpty() || !st.playing || !st.triggerEnabled) return  // ← switch dihormati
-        // ... pencocokan seperti sebelumnya
+        if (keywords.isEmpty() || !st.playing || !st.triggerEnabled) return
 
         val lower = payload.lowercase()
         if (keywords.any { lower.contains(it.lowercase()) }) {
