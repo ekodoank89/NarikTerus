@@ -63,4 +63,8 @@
     <string name="notif_off">BELUM DIIZINKAN — tap untuk buka pengaturan</string>
     <string name="trigger_enabled">Triger: %1$s</string>
     <string name="recent_clear">Bersihkan</string>
+    <string name="row_mode_grb">Mode auto-stop GRB</string>
+    <string name="row_mode_gjk">Mode auto-stop GJK</string>
+    <string name="mode_notif">Notif order (saat order muncul)</string>
+    <string name="mode_terima">Terima order (saat tap tombol terima)</string>
 </resources>
