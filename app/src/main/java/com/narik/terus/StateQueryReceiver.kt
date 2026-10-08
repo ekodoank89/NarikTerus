@@ -7,7 +7,9 @@ import android.content.Intent
 /**
  * Menjawab ACTION_QUERY dari proses target: menetapkan channel
  * berdasarkan <channel>_target di prefs modul, lalu membalas
- * ACTION_STATE (channel + play + koordinat + metode).
+ * ACTION_STATE (channel + play + koordinat + metode + KATA KUNCI TRIGGER).
+ * Trigger wajib ikut agar auto-stop tetap hidup setelah app target
+ * di-restart (jalur PULL ini satu-satunya sumber state saat itu).
  */
 class StateQueryReceiver : BroadcastReceiver() {
 
@@ -36,6 +38,10 @@ class StateQueryReceiver : BroadcastReceiver() {
                         prefs.getString("${channel}_lng", null)?.toDoubleOrNull() ?: 0.0
                     )
                     .putExtra(HookContract.KEY_METHODS, prefs.getLong("${channel}_methods", 0L))
+                    .putExtra(
+                        "trigger_keywords",
+                        prefs.getString("${channel}_trigger", "") ?: ""
+                    )
             )
         }
     }
