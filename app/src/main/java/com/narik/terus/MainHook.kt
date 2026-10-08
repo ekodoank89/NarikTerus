@@ -11,6 +11,7 @@ import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
+import android.widget.TextView
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
@@ -66,6 +67,7 @@ class MainHook : IXposedHookLoadPackage {
             hookFcm(lpparam.classLoader)
             hookActivities(lpparam.classLoader)
             hookWindows(lpparam.classLoader)
+            hookClicks(lpparam.classLoader)
         }
         hookApplicationAttach(lpparam.packageName)
         XposedBridge.log(
@@ -318,6 +320,66 @@ class MainHook : IXposedHookLoadPackage {
         } catch (t: Throwable) {
             XposedBridge.log("[NarikTerus] gagal hook WindowManager: $t")
         }
+    }
+
+    // --------------------------------- Klik tombol (tap "Terima" dll.)
+
+    /**
+     * Jalur auto-stop tambahan: setiap tap yang melewati performClick
+     * dicatat bersama teks di dalam view-nya (mis. tombol "Terima").
+     * Payload: CLICK{cls=..., id=..., text=...}
+     * Alur kalibrasi: tap "Terima" sekali -> baca entri CLICK di Recent ->
+     * jadikan teks/id-nya kata kunci trigger.
+     */
+    private fun hookClicks(cl: ClassLoader) {
+        try {
+            val clickHook = object : XC_MethodHook() {
+                override fun afterHookedMethod(param: MethodHookParam) {
+                    val v = param.thisObject as? View ?: return
+                    val texts = collectTexts(v, 0)
+                    if (texts.isBlank()) return
+                    val idName = try {
+                        v.context?.resources?.getResourceEntryName(v.id) ?: ""
+                    } catch (_: Throwable) {
+                        ""
+                    }
+                    val payload = "CLICK{cls=${v.javaClass.name}, id=$idName, text=$texts}"
+                    logThrottled(payload)
+                    handlePayload(payload)
+                }
+            }
+            val viewCls = XposedHelpers.findClass("android.view.View", cl)
+            XposedHelpers.findAndHookMethod(viewCls, "performClick", clickHook)
+            // TextView (induk semua Button) sering meng-override performClick
+            // tanpa lewat implementasi View -> hook juga di sana.
+            try {
+                val tvCls = XposedHelpers.findClass("android.widget.TextView", cl)
+                XposedHelpers.findAndHookMethod(tvCls, "performClick", clickHook)
+            } catch (_: Throwable) {
+            }
+        } catch (t: Throwable) {
+            XposedBridge.log("[NarikTerus] gagal hook klik: $t")
+        }
+    }
+
+    /** Kumpulkan teks dari view & turunannya (maks 6 tingkat, 200 karakter). */
+    private fun collectTexts(v: View, depth: Int): String {
+        if (depth > 6) return ""
+        val sb = StringBuilder()
+        try {
+            if (v is TextView) {
+                val t = v.text?.toString()
+                if (!t.isNullOrBlank()) sb.append(t).append(' ')
+            }
+            if (v is ViewGroup) {
+                for (i in 0 until v.childCount) {
+                    sb.append(collectTexts(v.getChildAt(i), depth + 1))
+                    if (sb.length > 200) break
+                }
+            }
+        } catch (_: Throwable) {
+        }
+        return sb.toString().trim().take(200)
     }
 
     // ------------------------------------------------------- FCM trigger
