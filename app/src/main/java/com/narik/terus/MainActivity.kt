@@ -125,6 +125,10 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private lateinit var rowMethodGjk: View
     private lateinit var rowTriggerGrb: View
     private lateinit var rowTriggerGjk: View
+    private lateinit var rowModeGrb: View
+    private lateinit var rowModeGjk: View
+    private lateinit var valModeGrb: TextView
+    private lateinit var valModeGjk: TextView
     private lateinit var rowNotifPerm: View
     private lateinit var valNotifPerm: TextView
     private lateinit var valTargetGrb: TextView
@@ -230,6 +234,10 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         valMethodGjk = findViewById(R.id.val_method_gjk)
         valTriggerGrb = findViewById(R.id.val_trigger_grb)
         valTriggerGjk = findViewById(R.id.val_trigger_gjk)
+        rowModeGrb = findViewById(R.id.row_mode_grb)
+        rowModeGjk = findViewById(R.id.row_mode_gjk)
+        valModeGrb = findViewById(R.id.val_mode_grb)
+        valModeGjk = findViewById(R.id.val_mode_gjk)
         keepOverlaysClearOfSystemBars()
         // Real-time auto-stop: receiver ini menghentikan channel (jitter +
         // marker + tombol) seketika saat hook melaporkan order masuk.
@@ -297,6 +305,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         rowMethodGjk.setOnClickListener { showMethodPicker("gjk") }
         rowTriggerGrb.setOnClickListener { showTriggerEditor("grb") }
         rowTriggerGjk.setOnClickListener { showTriggerEditor("gjk") }
+        rowModeGrb.setOnClickListener { showModePicker("grb") }
+        rowModeGjk.setOnClickListener { showModePicker("gjk") }
         rowNotifPerm.setOnClickListener {
             startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
         }
@@ -529,8 +539,20 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private fun cfgFor(channel: String): JitterConfig =
         if (channel == "grb") jitterGrb else jitterGjk
 
-    private fun triggerFor(channel: String): String =
-        statePrefs.getString("${channel}_trigger", "") ?: ""
+    /** Kata kunci trigger sesuai MODE aktif channel (disimpan terpisah per mode). */
+    private fun triggerFor(channel: String): String {
+        val mode = stopModeFor(channel)
+        val key = "${channel}_trigger_$mode"
+        var v = statePrefs.getString(key, null)
+        if (v == null) {
+            // Migrasi: nilai lama (sebelum ada mode) milik mode "notif"
+            v = if (mode == "notif") (statePrefs.getString("${channel}_trigger", "") ?: "") else ""
+                statePrefs.edit()
+                    .putString("${channel}_trigger_" + stopModeFor(channel), input.text.toString().trim())
+                    .apply()
+        }
+        return v
+    }"
 
     private fun refreshSetLabels() {
         valTargetGrb.text = grbTarget
@@ -540,8 +562,13 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         valTriggerGrb.text = triggerFor("grb").ifEmpty { "(nonaktif)" }
         valTriggerGjk.text = triggerFor("gjk").ifEmpty { "(nonaktif)" }
         valNotifPerm.text = if (NotificationManagerCompat
-                .getEnabledListenerPackages(this).contains(packageName)
+        getEnabledListenerPackages(this).contains(packageName)
         ) getString(R.string.notif_on) else getString(R.string.notif_off)
+        valModeGrb.text = if (stopModeFor("grb") == "terima")
+            getString(R.string.mode_terima) else getString(R.string.mode_notif)
+        valModeGjk.text = if (stopModeFor("gjk") == "terima")
+            getString(R.string.mode_terima) else getString(R.string.mode_notif)
+                  .putExtra("stopmode", stopModeFor(channel))
     }
 
     private fun methodsLabel(mask: Long): String {
@@ -732,6 +759,40 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 else getString(R.string.row_trigger_gjk)
             )
             .setView(view)
+            .show()
+    }
+    
+    /** Mode auto-stop per channel: "notif" (default) atau "terima". */
+    private fun stopModeFor(channel: String): String =
+        statePrefs.getString("${channel}_stopmode", "notif") ?: "notif"
+
+    private fun showModePicker(channel: String) {
+        val modes = listOf(
+            "notif" to getString(R.string.mode_notif),
+            "terima" to getString(R.string.mode_terima)
+        )
+        val current = stopModeFor(channel)
+        val labels = modes.map { it.second }.toTypedArray()
+        val checked = modes.indexOfFirst { it.first == current }
+
+        AlertDialog.Builder(this)
+            .setTitle(
+                if (channel == "grb") getString(R.string.row_mode_grb)
+                else getString(R.string.row_mode_gjk)
+            )
+            .setSingleChoiceItems(labels, checked) { dlg, which ->
+                statePrefs.edit()
+                    .putString("${channel}_stopmode", modes[which].first)
+                    .apply()
+                dlg.dismiss()
+                // Sinkronkan mode + kata kunci mode baru ke proses target
+                val playing = playingFor(channel)
+                val pos = dotFor(channel)?.position ?: markerFor(channel)?.position
+                sendStateTo(currentTarget(channel), channel, playing, pos, methodsFor(channel))
+                refreshSetLabels()
+                Toast.makeText(this, R.string.trigger_saved, Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
             .show()
     }
 
