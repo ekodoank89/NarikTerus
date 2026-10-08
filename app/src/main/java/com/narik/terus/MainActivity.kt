@@ -1390,6 +1390,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                     .putExtra(HookContract.KEY_LNG, pos?.longitude ?: 0.0)
                     .putExtra(HookContract.KEY_METHODS, methods)
                     .putExtra("trigger_keywords", triggerFor(channel))
+                    .putExtra("trigger_enabled", triggerEnabled(channel))   // ← TAMBAHAN
             )
         }
     }
