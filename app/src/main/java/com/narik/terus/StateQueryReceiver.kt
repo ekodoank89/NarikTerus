@@ -25,6 +25,10 @@ class StateQueryReceiver : BroadcastReceiver() {
         }
 
         runCatching {
+                    .putExtra(
+                        "trigger_enabled",
+                        prefs.getBoolean("${channel}_trigger_enabled", true)
+                    )
             context.sendBroadcast(
                 Intent(HookContract.ACTION_STATE).setPackage(senderPkg)
                     .putExtra(HookContract.KEY_CHANNEL, channel)
