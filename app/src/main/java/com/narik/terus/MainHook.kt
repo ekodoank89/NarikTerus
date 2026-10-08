@@ -42,7 +42,8 @@ class MainHook : IXposedHookLoadPackage {
         val lng: Double,
         val methods: Long,
         val triggerKeywords: String,
-        val triggerEnabled: Boolean
+        val triggerEnabled: Boolean,
+        val stopMode: String
     )
 
     @Volatile
@@ -105,8 +106,10 @@ class MainHook : IXposedHookLoadPackage {
                 val trigger = intent.getStringExtra("trigger_keywords") ?: ""
                 val triggerEnabled = intent.getBooleanExtra("trigger_enabled", true)
                 val oldPlaying = state?.playing
+                val triggerEnabled = intent.getBooleanExtra("trigger_enabled", true)
+                val stopMode = intent.getStringExtra("stopmode") ?: "notif"   // ← baru
                 channel = newChannel
-                state = State(playing, lat, lng, methods, trigger, triggerEnabled)
+                state = State(playing, lat, lng, methods, trigger, triggerEnabled, stopMode)
                 if (oldPlaying != playing || oldPlaying == null) {
                     XposedBridge.log(
                         "[NarikTerus] $newChannel: state -> " +
@@ -482,6 +485,10 @@ class MainHook : IXposedHookLoadPackage {
             XposedBridge.log("[NarikTerus] $ch payload: $payload")
         }
         sendToModule(HookContract.ACTION_RECENT, ch, payload, false)
+
+        // Filter mode: "terima" hanya pada CLICK; "notif" hanya pada kejadian muncul
+        val isClick = payload.startsWith("CLICK{")
+        if (isClick != (st.stopMode == "terima")) return
 
         val keywords = st.triggerKeywords.split(',')
             .map { it.trim() }
