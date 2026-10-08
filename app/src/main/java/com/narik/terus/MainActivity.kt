@@ -643,70 +643,94 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     // --------------------------------------------------- trigger & recent
 
+    /** State trigger per channel: kata kunci + saklar aktif. */
+    private fun triggerEnabled(channel: String): Boolean =
+        statePrefs.getBoolean("${channel}_trigger_enabled", true)
+
     private fun showTriggerEditor(channel: String) {
-        val input = EditText(this).apply {
-            hint = getString(R.string.trigger_hint)
-            setSingleLine()
-            setText(triggerFor(channel))
+        val view = layoutInflater.inflate(R.layout.dialog_trigger, null)
+
+        val toggle = view.findViewById<TextView>(R.id.toggle_trigger)
+        val input = view.findViewById<EditText>(R.id.input_trigger)
+        val btnSave = view.findViewById<Button>(R.id.btn_trigger_save)
+        val recentList = view.findViewById<LinearLayout>(R.id.recent_list)
+
+        fun refreshToggle() {
+            toggle.text = getString(
+                R.string.trigger_enabled,
+                if (triggerEnabled(channel)) "AKTIF" else "MATI"
+            )
         }
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            val d = (16 * resources.displayMetrics.density).toInt()
-            setPadding(d, d / 2, d, 0)
-            addView(input)
+        refreshToggle()
+        input.setText(triggerFor(channel))
+
+        toggle.setOnClickListener {
+            statePrefs.edit()
+                .putBoolean("${channel}_trigger_enabled", !triggerEnabled(channel))
+                .apply()
+            refreshToggle()
+            // Sinkronkan segera ke proses target (play maupun stop)
+            val playing = playingFor(channel)
+            val pos = dotFor(channel)?.position ?: markerFor(channel)?.position
+            sendStateTo(currentTarget(channel), channel, playing, pos, methodsFor(channel))
         }
+
+        btnSave.setOnClickListener {
+            statePrefs.edit()
+                .putString("${channel}_trigger", input.text.toString().trim())
+                .apply()
+            val playing = playingFor(channel)
+            val pos = dotFor(channel)?.position ?: markerFor(channel)?.position
+            sendStateTo(currentTarget(channel), channel, playing, pos, methodsFor(channel))
+            Toast.makeText(this, R.string.trigger_saved, Toast.LENGTH_SHORT).show()
+            refreshSetLabels()
+        }
+
+        // Recent list (tap = salin; tekan lama = hapus satu entri)
+        fun refreshRecent() {
+            recentList.removeAllViews()
+            val list = statePrefs.getString("recent_$channel", null)
+                ?.split('\n')?.filter { it.isNotBlank() } ?: emptyList()
+            if (list.isEmpty()) {
+                recentList.addView(TextView(this).apply {
+                    text = getString(R.string.recent_empty)
+                    setPadding(0, 16, 0, 16)
+                })
+                return
+            }
+            for (item in list) {
+                recentList.addView(TextView(this).apply {
+                    text = item
+                    textSize = 12f
+                    setPadding(0, 14, 0, 14)
+                    setOnClickListener {
+                        val cm = getSystemService(
+                            Context.CLIPBOARD_SERVICE
+                        ) as ClipboardManager
+                        cm.setPrimaryClip(ClipData.newPlainText("payload", item))
+                        Toast.makeText(context, R.string.recent_copied, Toast.LENGTH_SHORT)
+                            .show()
+                    }
+                    setOnLongClickListener {
+                        val cur = statePrefs.getString("recent_$channel", null)
+                            ?.split('\n')?.filter { it != item } ?: emptyList()
+                        statePrefs.edit()
+                            .putString("recent_$channel", cur.joinToString("\n"))
+                            .apply()
+                        refreshRecent()
+                        true
+                    }
+                })
+            }
+        }
+        refreshRecent()
+
         AlertDialog.Builder(this)
             .setTitle(
                 if (channel == "grb") getString(R.string.row_trigger_grb)
                 else getString(R.string.row_trigger_gjk)
             )
-            .setView(container)
-            .setPositiveButton(R.string.trigger_save) { _, _ ->
-                statePrefs.edit()
-                    .putString("${channel}_trigger", input.text.toString().trim())
-                    .apply()
-                // Sinkronkan kata kunci ke proses target (play maupun stop)
-                val playing = playingFor(channel)
-                val pos = dotFor(channel)?.position ?: markerFor(channel)?.position
-                sendStateTo(currentTarget(channel), channel, playing, pos, methodsFor(channel))
-                Toast.makeText(this, R.string.trigger_saved, Toast.LENGTH_SHORT).show()
-                refreshSetLabels()
-            }
-            .setNeutralButton(R.string.recent_open) { _, _ -> showRecentList(channel) }
-            .setNegativeButton(android.R.string.cancel, null)
-            .show()
-    }
-
-    private fun showRecentList(channel: String) {
-        val list = statePrefs.getString("recent_$channel", null)
-            ?.split('\n')?.filter { it.isNotBlank() } ?: emptyList()
-
-        val container = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        if (list.isEmpty()) {
-            container.addView(TextView(this).apply {
-                text = getString(R.string.recent_empty)
-                setPadding(48, 24, 48, 24)
-            })
-        } else {
-            for (item in list) {
-                container.addView(TextView(this).apply {
-                    text = item
-                    textSize = 12f
-                    setPadding(48, 20, 48, 20)
-                    setOnClickListener {
-                        val cm =
-                            getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        cm.setPrimaryClip(ClipData.newPlainText("payload", item))
-                        Toast.makeText(context, R.string.recent_copied, Toast.LENGTH_SHORT).show()
-                    }
-                })
-            }
-        }
-
-        AlertDialog.Builder(this)
-            .setTitle(R.string.recent_title)
-            .setView(android.widget.ScrollView(this).apply { addView(container) })
-            .setPositiveButton(android.R.string.ok, null)
+            .setView(view)
             .show()
     }
 
