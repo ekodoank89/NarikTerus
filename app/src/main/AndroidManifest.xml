@@ -56,6 +56,14 @@
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
+
+        <receiver
+            android:name=".TriggerReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.narik.terus.ACTION_TRIGGER" />
+            </intent-filter>
+        </receiver>
         
         <activity
             android:name=".MainActivity"
