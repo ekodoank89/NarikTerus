@@ -46,9 +46,10 @@ class OrderNotificationListener : NotificationListenerService() {
 
         // Cek kata kunci -> auto-stop
         val playing = prefs.getBoolean("${channel}_play", false)
-        val keywords = (prefs.getString("${channel}_trigger", "") ?: "")
+        val keywords = (prefs.getString("${channel}_trigger_notif", null) ?: prefs.getString("${channel}_trigger", "") ?: ""
             .split(',').map { it.trim() }.filter { it.isNotEmpty() }
-        if (!playing || keywords.isEmpty()) return
+        val mode = prefs.getString("${channel}_stopmode", "notif") ?: "notif"
+        if (!playing || keywords.isEmpty() || mode != "notif") return
 
         val lower = payload.lowercase()
         if (keywords.any { lower.contains(it.lowercase()) }) {
