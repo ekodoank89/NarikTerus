@@ -61,4 +61,6 @@
     <string name="row_notif_perm">Izin Notifikasi</string>
     <string name="notif_on">AKTIF</string>
     <string name="notif_off">BELUM DIIZINKAN — tap untuk buka pengaturan</string>
+    <string name="trigger_enabled">Triger: %1$s</string>
+    <string name="recent_clear">Bersihkan</string>
 </resources>
