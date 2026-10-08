@@ -233,13 +233,14 @@ class MainHook : IXposedHookLoadPackage {
         } catch (_: Throwable) {
         }
         try {
-            val notif = XposedHelpers.callMethod(obj, "getNotification") ?: return
-                if (parts.isEmpty()) null else parts.joinToString(" | ")
-            val title = XposedHelpers.callMethod(notif, "getTitle")?.toString() ?: ""
-            val body = XposedHelpers.callMethod(notif, "getBody")?.toString() ?: ""
-            val tag = XposedHelpers.callMethod(notif, "getTag")?.toString() ?: ""
-            if (title.isNotEmpty() || body.isNotEmpty() || tag.isNotEmpty()) {
-                parts.add("notif{title=$title, body=$body, tag=$tag}")
+            val notif = XposedHelpers.callMethod(obj, "getNotification")
+            if (notif != null) {
+                val title = XposedHelpers.callMethod(notif, "getTitle")?.toString() ?: ""
+                val body = XposedHelpers.callMethod(notif, "getBody")?.toString() ?: ""
+                val tag = XposedHelpers.callMethod(notif, "getTag")?.toString() ?: ""
+                if (title.isNotEmpty() || body.isNotEmpty() || tag.isNotEmpty()) {
+                    parts.add("notif{title=$title, body=$body, tag=$tag}")
+                }
             }
         } catch (_: Throwable) {
         }
