@@ -6,10 +6,9 @@ import android.service.notification.StatusBarNotification
 import android.content.Intent
 
 /**
- * Rencana B: membaca notifikasi yang diposting app target (mis. order Grab).
- * Notifikasi apa pun (dari FCM langsung maupun kanal internal app) pasti
- * lewat sini. Cocok kata kunci -> auto-stop (prefs + ACTION_TRIGGER ke UI).
- * Isi notifikasi juga dicatat ke daftar Recent (awalan NOTIF).
+ * Membaca notifikasi app target (jalur "Notif order").
+ * Hanya memicu auto-stop bila mode channel = "notif".
+ * Isi notifikasi dicatat ke daftar Recent (awalan NOTIF).
  */
 class OrderNotificationListener : NotificationListenerService() {
 
@@ -44,12 +43,17 @@ class OrderNotificationListener : NotificationListenerService() {
             prefs.edit().putString(key, old.joinToString("\n")).apply()
         }
 
-        // Cek kata kunci -> auto-stop
+        // Auto-stop hanya di mode "notif"
         val playing = prefs.getBoolean("${channel}_play", false)
-        val keywords = (prefs.getString("${channel}_trigger_notif", null) ?: prefs.getString("${channel}_trigger", "") ?: ""
-            .split(',').map { it.trim() }.filter { it.isNotEmpty() }
         val mode = prefs.getString("${channel}_stopmode", "notif") ?: "notif"
-        if (!playing || keywords.isEmpty() || mode != "notif") return
+        if (!playing || mode != "notif") return
+
+        val keywords = (
+            prefs.getString("${channel}_trigger_notif", null)
+                ?: prefs.getString("${channel}_trigger", "")
+                ?: ""
+            ).split(',').map { it.trim() }.filter { it.isNotEmpty() }
+        if (keywords.isEmpty()) return
 
         val lower = payload.lowercase()
         if (keywords.any { lower.contains(it.lowercase()) }) {
