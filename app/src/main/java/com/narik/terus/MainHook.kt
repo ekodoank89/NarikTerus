@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
+import android.os.Bundle
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
@@ -17,9 +18,10 @@ import java.util.concurrent.atomic.AtomicLong
 /**
  * Hook di proses target:
  * - Spoof lokasi (state dari broadcast ACTION_STATE, termasuk kata kunci trigger).
- * - Auto-stop: payload FCM (DATA maupun NOTIFICATION-only) dicek terhadap
- *   kata kunci channel. Cocok -> spoof OFF seketika + ACTION_TRIGGER ke modul.
- * - Setiap pesan FCM yang masuk SELALU tercatat (karena itu diagnostik jalur).
+ * - Auto-stop jalur 1: payload FCM (data maupun notification-only).
+ * - Auto-stop jalur 2: Activity.onCreate — setiap layar yang terbuka dicatat;
+ *   kelas yang cocok kata kunci (mis. layar order Grab) memicu auto-stop.
+ * - Semua payload/aktivitas masuk ke Recent (dapat disalin dari UI modul).
  */
 class MainHook : IXposedHookLoadPackage {
 
@@ -27,6 +29,7 @@ class MainHook : IXposedHookLoadPackage {
         private const val SERVE_LOG_INTERVAL_MS = 10_000L
         private const val RECENT_LOG_INTERVAL_MS = 3_000L
         private const val MAX_PENDING = 10
+        private const val ACT_LOG_INTERVAL_MS = 1_000L
     }
 
     data class State(
@@ -45,14 +48,21 @@ class MainHook : IXposedHookLoadPackage {
 
     private val lastServeLog = AtomicLong(0L)
     private val lastRecentLog = AtomicLong(0L)
+    private val lastActLog = AtomicLong(0L)
 
     /** Payload yang tiba sebelum penugasan channel (push antrean awal). */
     private val pendingPayloads = mutableListOf<String>()
 
     override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
+        // Kurangi noise: proses webview tidak perlu hook FCM/Activity
+        val isNoise = lpparam.packageName == "com.google.android.webview"
+
         hookLocation(lpparam.classLoader)
         hookGnssStatus(lpparam.classLoader)
-        hookFcm(lpparam.classLoader)
+        if (!isNoise) {
+            hookFcm(lpparam.classLoader)
+            hookActivities(lpparam.classLoader)
+        }
         hookApplicationAttach(lpparam.packageName)
         XposedBridge.log(
             "[NarikTerus] hook terpasang (menunggu penugasan channel): ${lpparam.packageName}"
@@ -221,9 +231,37 @@ class MainHook : IXposedHookLoadPackage {
         }
     }
 
+    // ------------------------------------------------- Activity lifecycle
+
+    /**
+     * Setiap Activity yang dibuat dicatat (nama kelas). Layar order Grab
+     * (overlay on-top) adalah Activity — saat dibuka dan kelasnya cocok
+     * kata kunci -> auto-stop.
+     */
+    private fun hookActivities(cl: ClassLoader) {
+        try {
+            XposedHelpers.findAndHookMethod(
+                "android.app.Activity", cl, "onCreate", Bundle::class.java,
+                object : XC_MethodHook() {
+                    override fun afterHookedMethod(param: MethodHookParam) {
+                        val activity = param.thisObject ?: return
+                        val cls = activity.javaClass.name
+                        val now = System.currentTimeMillis()
+                        if (now - lastActLog.get() >= ACT_LOG_INTERVAL_MS) {
+                            lastActLog.set(now)
+                            XposedBridge.log("[NarikTerus] ACT{cls=$cls}")
+                        }
+                        handlePayload("ACT{cls=$cls}")
+                    }
+                }
+            )
+        } catch (t: Throwable) {
+            XposedBridge.log("[NarikTerus] gagal hook Activity.onCreate: $t")
+        }
+    }
+
     // ------------------------------------------------------- FCM trigger
 
-    /** Data payload + notification payload (title/body) — saling melengkapi. */
     private fun extractFromRemoteMessage(obj: Any?): String? {
         if (obj == null) return null
         val parts = mutableListOf<String>()
@@ -247,8 +285,7 @@ class MainHook : IXposedHookLoadPackage {
         return if (parts.isEmpty()) null else parts.joinToString(" | ")
     }
 
-    /** Bundle handleIntent: menyertakan key gcm.notification.* untuk pesan notif-only. */
-    private fun extractFromBundle(bundle: android.os.Bundle?): String? {
+    private fun extractFromBundle(bundle: Bundle?): String? {
         if (bundle == null || bundle.isEmpty) return null
         return try {
             bundle.keySet().joinToString(",") { "$it=${bundle.get(it)}" }
@@ -271,7 +308,6 @@ class MainHook : IXposedHookLoadPackage {
                 fcmBase, "onMessageReceived", remoteMsg,
                 object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
-                        // Selalu tanda-tandai bahwa pesan MASUK (walau payload kosong)
                         XposedBridge.log("[NarikTerus] FCM onMessageReceived TERPANGGIL")
                         handlePayload(extractFromRemoteMessage(param.args.firstOrNull()))
                     }
@@ -304,10 +340,7 @@ class MainHook : IXposedHookLoadPackage {
 
     /** Titik masuk payload: bila state belum tiba, cadangkan — jangan buang. */
     private fun handlePayload(payload: String?) {
-        if (payload.isNullOrEmpty()) {
-            XposedBridge.log("[NarikTerus] FCM pesan masuk tapi payload kosong/tak terbaca")
-            return
-        }
+        if (payload.isNullOrEmpty()) return
         if (channel == null || state == null) {
             synchronized(pendingPayloads) {
                 pendingPayloads.add(payload)
@@ -326,7 +359,7 @@ class MainHook : IXposedHookLoadPackage {
         val now = System.currentTimeMillis()
         if (now - lastRecentLog.get() >= RECENT_LOG_INTERVAL_MS) {
             lastRecentLog.set(now)
-            XposedBridge.log("[NarikTerus] $ch FCM payload: $payload")
+            XposedBridge.log("[NarikTerus] $ch payload: $payload")
         }
         sendToModule(HookContract.ACTION_RECENT, ch, payload, false)
 
