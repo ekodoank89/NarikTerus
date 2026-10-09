@@ -71,4 +71,6 @@
     <string name="a11y_on">AKTIF</string>
     <string name="a11y_off">BELUM AKTIF — tap untuk buka pengaturan</string>
     <string name="a11y_desc">Menangkap klik tombol Terima order di aplikasi target</string>
+    <string name="row_block_grb">Blokir auto-terima Turbo GRB</string>
+    <string name="row_block_gjk">Blokir auto-terima Turbo GJK</string>
 </resources>
