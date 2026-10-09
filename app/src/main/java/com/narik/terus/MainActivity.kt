@@ -818,18 +818,17 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                     .putString("${channel}_stopmode", modes[which].first)
                     .apply()
                 dlg.dismiss()
+                // Sinkronkan mode + kata kunci mode baru ke proses target
+                val playing = playingFor(channel)
+                val pos = dotFor(channel)?.position ?: markerFor(channel)?.position
+                sendStateTo(currentTarget(channel), channel, playing, pos, methodsFor(channel))
+                refreshSetLabels()
                 Toast.makeText(
                     this,
                     (if (channel == "grb") getString(R.string.row_mode_grb)
                     else getString(R.string.row_mode_gjk)) + ": " + modes[which].second,
                     Toast.LENGTH_SHORT
                 ).show()
-                // Sinkronkan mode + kata kunci mode baru ke proses target
-                val playing = playingFor(channel)
-                val pos = dotFor(channel)?.position ?: markerFor(channel)?.position
-                sendStateTo(currentTarget(channel), channel, playing, pos, methodsFor(channel))
-                refreshSetLabels()
-                Toast.makeText(this, R.string.trigger_saved, Toast.LENGTH_SHORT).show()
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
