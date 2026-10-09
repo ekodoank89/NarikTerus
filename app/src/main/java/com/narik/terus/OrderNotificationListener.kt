@@ -36,7 +36,7 @@ class OrderNotificationListener : NotificationListenerService() {
 
         // Abaikan notifikasi kadaluarsa (>15 dtk): re-fire listener reconnect
         // dan notifikasi lama tidak boleh memicu auto-stop palsu.
-        if (sbn.getWhen() > 0 && System.currentTimeMillis() - sbn.getWhen() > 15_000L) return
+        if (sbn.postTime > 0 && System.currentTimeMillis() - sbn.postTime > 15_000L) return
 
         // Recent (throttle 2 dtk per channel)
         val now = System.currentTimeMillis()
