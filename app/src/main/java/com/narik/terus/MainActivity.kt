@@ -322,7 +322,15 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         rowNotifPerm.setOnClickListener {
             startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
         }
+        rowNotifPerm.setOnClickListener {
+            Toast.makeText(this, R.string.toast_perm_open, Toast.LENGTH_SHORT).show()
+            startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+        }
         rowA11yPerm.setOnClickListener {
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        }
+        rowA11yPerm.setOnClickListener {
+            Toast.makeText(this, R.string.toast_perm_open, Toast.LENGTH_SHORT).show()
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }
         rowBlockGrb.setOnClickListener {
@@ -590,14 +598,26 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             val playing = playingFor("grb")
             val pos = dotFor("grb")?.position ?: markerFor("grb")?.position
             sendStateTo(grbTarget, "grb", playing, pos, grbMethods)
+            Toast.makeText(
+                this,
+                if (blockTurboFor("grb")) R.string.toast_block_turbo_on
+                else R.string.toast_block_turbo_off,
+                Toast.LENGTH_SHORT
+            ).show()
             refreshSetLabels()
         }
         
-        rowBlockGrb.setOnClickListener {
+        rowBlockGjk.setOnClickListener {
             statePrefs.edit().putBoolean("gjk_blockturbo", !blockTurboFor("gjk")).apply()
             val playing = playingFor("gjk")
             val pos = dotFor("gjk")?.position ?: markerFor("gjk")?.position
-            sendStateTo(grbTarget, "gjk", playing, pos, grbMethods)
+            sendStateTo(gjkTarget, "gjk", playing, pos, grbMethods)
+            Toast.makeText(
+                this,
+                if (blockTurboFor("gjk")) R.string.toast_block_turbo_on
+                else R.string.toast_block_turbo_off,
+                Toast.LENGTH_SHORT
+            ).show()
             refreshSetLabels()
         }
         
@@ -706,6 +726,11 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 sel = if (isChecked) sel or flag else sel and flag.inv()
             }
             .setPositiveButton("Simpan") { _, _ -> applyMethods(channel, sel) }
+                Toast.makeText(
+                    this,
+                    "Metode ${channel.uppercase()} disimpan",
+                    Toast.LENGTH_SHORT
+                ).show()
             .setNegativeButton("Batal", null)
             .show()
     }
@@ -793,6 +818,12 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                     .putString("${channel}_stopmode", modes[which].first)
                     .apply()
                 dlg.dismiss()
+                Toast.makeText(
+                    this,
+                    (if (channel == "grb") getString(R.string.row_mode_grb)
+                    else getString(R.string.row_mode_gjk)) + ": " + modes[which].second,
+                    Toast.LENGTH_SHORT
+                ).show()
                 // Sinkronkan mode + kata kunci mode baru ke proses target
                 val playing = playingFor(channel)
                 val pos = dotFor(channel)?.position ?: markerFor(channel)?.position
