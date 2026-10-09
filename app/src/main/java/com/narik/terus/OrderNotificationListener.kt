@@ -62,6 +62,29 @@ class OrderNotificationListener : NotificationListenerService() {
                 .putString("${channel}_stop_request", "1")
                 .apply()
             runCatching {
+            // Langsung matikan hook di proses target (walau UI modul tertutup)
+            val targetPkg = prefs.getString("${channel}_target", null)
+            if (targetPkg != null) {
+                runCatching {
+                    sendBroadcast(
+                        Intent(HookContract.ACTION_STATE).setPackage(targetPkg)
+                            .putExtra(HookContract.KEY_CHANNEL, channel)
+                            .putExtra(HookContract.KEY_PLAY, false)
+                            .putExtra(
+                                HookContract.KEY_LAT,
+                                prefs.getString("${channel}_lat", null)?.toDoubleOrNull() ?: 0.0
+                            )
+                            .putExtra(
+                                HookContract.KEY_LNG,
+                                prefs.getString("${channel}_lng", null)?.toDoubleOrNull() ?: 0.0
+                            )
+                            .putExtra(HookContract.KEY_METHODS, prefs.getLong("${channel}_methods", 0L))
+                            .putExtra("trigger_keywords", keywords.joinToString(","))
+                            .putExtra("trigger_enabled", true)
+                            .putExtra("stopmode", mode)
+                    )
+                }
+            }
                 sendBroadcast(
                     Intent(HookContract.ACTION_TRIGGER).setPackage(packageName)
                         .putExtra(HookContract.KEY_CHANNEL, channel)
