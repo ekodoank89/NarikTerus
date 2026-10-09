@@ -1392,7 +1392,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             startJitter("gjk")
             refreshGjkChip()
             updateServiceButtonUi(btnGjk, badgeGjk, true)
-            sendStateTo(gjkTarget, "gjk", true, gjkDot?.position ?: pos, gjkMethods, force = true))
+            sendStateTo(gjkTarget, "gjk", true, gjkDot?.position ?: pos, gjkMethods, force = true)
         }
     }
 
