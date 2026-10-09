@@ -20,6 +20,6 @@ class TriggerReceiver : BroadcastReceiver() {
             .edit()
             .putBoolean("${channel}_play", false)
             .putString("${channel}_stop_request", "1")
-            .apply()
+            .commit()
     }
 }
