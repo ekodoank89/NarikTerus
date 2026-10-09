@@ -574,11 +574,11 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 .getEnabledListenerPackages(this)
                 .contains(packageName)
             if (ok) getString(R.string.notif_on) else getString(R.string.notif_off)
-        valA11yPerm.text = if (isA11yEnabled())
-            getString(R.string.a11y_on) else getString(R.string.a11y_off)
         } catch (_: Throwable) {
             getString(R.string.notif_off)
         }
+        valA11yPerm.text = if (isA11yEnabled())
+            getString(R.string.a11y_on) else getString(R.string.a11y_off)
     }
 
     private fun methodsLabel(mask: Long): String {
