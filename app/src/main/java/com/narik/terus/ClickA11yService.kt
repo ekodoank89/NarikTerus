@@ -54,7 +54,7 @@ class ClickA11yService : AccessibilityService() {
             prefs.edit()
                 .putBoolean("${channel}_play", false)
                 .putString("${channel}_stop_request", "1")
-                .apply()
+                .commit()
 
             // Langsung matikan hook di proses target (walau UI modul tertutup)
             val targetPkg = prefs.getString("${channel}_target", null)
