@@ -137,6 +137,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private lateinit var valMethodGjk: TextView
     private lateinit var valTriggerGrb: TextView
     private lateinit var valTriggerGjk: TextView
+    private lateinit var rowA11yPerm: View
+    private lateinit var valA11yPerm: TextView
 
     private var map: GoogleMap? = null
     private var followMode = false
@@ -238,6 +240,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         rowModeGjk = findViewById(R.id.row_mode_gjk)
         valModeGrb = findViewById(R.id.val_mode_grb)
         valModeGjk = findViewById(R.id.val_mode_gjk)
+        rowA11yPerm = findViewById(R.id.row_a11y_perm)
+        valA11yPerm = findViewById(R.id.val_a11y_perm)
         keepOverlaysClearOfSystemBars()
         // Real-time auto-stop: receiver ini menghentikan channel (jitter +
         // marker + tombol) seketika saat hook melaporkan order masuk.
@@ -309,6 +313,9 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         rowModeGjk.setOnClickListener { showModePicker("gjk") }
         rowNotifPerm.setOnClickListener {
             startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+        }
+        rowA11yPerm.setOnClickListener {
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }
 
         btnCloseMenu.setOnClickListener {
@@ -567,6 +574,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 .getEnabledListenerPackages(this)
                 .contains(packageName)
             if (ok) getString(R.string.notif_on) else getString(R.string.notif_off)
+        valA11yPerm.text = if (isA11yEnabled())
+            getString(R.string.a11y_on) else getString(R.string.a11y_off)
         } catch (_: Throwable) {
             getString(R.string.notif_off)
         }
@@ -715,6 +724,13 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     /** Mode auto-stop per channel: "notif" (default) atau "terima". */
     private fun stopModeFor(channel: String): String =
         statePrefs.getString("${channel}_stopmode", "notif") ?: "notif"
+        
+    private fun isA11yEnabled(): Boolean {
+        val s = Settings.Secure.getString(
+            contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+        ) ?: return false
+        return s.contains(packageName)
+    }
 
     private fun showModePicker(channel: String) {
         val modes = listOf(
