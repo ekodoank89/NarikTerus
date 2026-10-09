@@ -565,6 +565,22 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         valMethodGjk.text = methodsLabel(gjkMethods)
         valTriggerGrb.text = if (!triggerEnabled("grb")) "(MATI)" else triggerFor("grb").ifEmpty { "(nonaktif)" }
         valTriggerGjk.text = if (!triggerEnabled("gjk")) "(MATI)" else triggerFor("gjk").ifEmpty { "(nonaktif)" }
+        rowBlockGrb.setOnClickListener {
+            statePrefs.edit().putBoolean("grb_blockturbo", !blockTurboFor("grb")).apply()
+            val playing = playingFor("grb")
+            val pos = dotFor("grb")?.position ?: markerFor("grb")?.position
+            sendStateTo(grbTarget, "grb", playing, pos, grbMethods)
+            refreshSetLabels()
+        }
+        
+        rowBlockGrb.setOnClickListener {
+            statePrefs.edit().putBoolean("gjk_blockturbo", !blockTurboFor("gjk")).apply()
+            val playing = playingFor("gjk")
+            val pos = dotFor("gjk")?.position ?: markerFor("gjk")?.position
+            sendStateTo(grbTarget, "gjk", playing, pos, grbMethods)
+            refreshSetLabels()
+        }
+        
         valModeGrb.text = if (stopModeFor("grb") == "terima")
             getString(R.string.mode_terima) else getString(R.string.mode_notif)
         valModeGjk.text = if (stopModeFor("gjk") == "terima")
@@ -724,6 +740,9 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     /** Mode auto-stop per channel: "notif" (default) atau "terima". */
     private fun stopModeFor(channel: String): String =
         statePrefs.getString("${channel}_stopmode", "notif") ?: "notif"
+        
+    private fun blockTurboFor(channel: String): Boolean =
+        statePrefs.getBoolean("${channel}_blockturbo", false)
         
     private fun isA11yEnabled(): Boolean {
         val s = Settings.Secure.getString(
@@ -1453,6 +1472,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                     .putExtra("trigger_keywords", triggerFor(channel))
                     .putExtra("trigger_enabled", triggerEnabled(channel))
                     .putExtra("stopmode", stopModeFor(channel))
+                    .putExtra("block_turbo", blockTurboFor(channel))
+                    .putExtra("block_keywords", "terima,terima pesanan,accept")
             )
         }
     }
