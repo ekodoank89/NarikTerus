@@ -1300,14 +1300,12 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private fun jitterTick(channel: String) {
         val running = if (channel == "grb") grbJitterRunning else gjkJitterRunning
         if (!running) return
-        // Pengaman auto-stop: bila prefs sudah play=false (order masuk),
-        // matikan mesin — JANGAN pernah mengirim ON lagi.
+        // Pengaman auto-stop: play sudah false -> matikan mesin, JANGAN kirim ON.
         if (!statePrefs.getBoolean("${channel}_play", false)) {
             stopJitter(channel)
             return
         }
         val cfg = cfgFor(channel)
-        // ... sisanya tetap
         val dot = dotFor(channel) ?: return
         val center = centerFor(channel) ?: return
 
@@ -1334,7 +1332,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         statePrefs.edit()
             .putString("${channel}_lat", newPos.latitude.toString())
             .putString("${channel}_lng", newPos.longitude.toString())
-            .apply()
+            .commit()
         sendStateTo(currentTarget(channel), channel, true, newPos, methodsFor(channel))
 
         jitterHandler.postDelayed({ jitterTick(channel) }, cfg.intervalSec * 1000)
@@ -1373,7 +1371,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             startJitter("grb")
             refreshGrbChip()
             updateServiceButtonUi(btnGrb, badgeGrb, true)
-            sendStateTo(grbTarget, "grb", true, grbDot?.position ?: pos, grbMethods)
+            sendStateTo(grbTarget, "grb", true, grbDot?.position ?: pos, grbMethods, force = true)
         } else {
             gjkPlaying = true
             if (gjkMarker == null) {
@@ -1394,7 +1392,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             startJitter("gjk")
             refreshGjkChip()
             updateServiceButtonUi(btnGjk, badgeGjk, true)
-            sendStateTo(gjkTarget, "gjk", true, gjkDot?.position ?: pos, gjkMethods)
+            sendStateTo(gjkTarget, "gjk", true, gjkDot?.position ?: pos, gjkMethods, force = true))
         }
     }
 
@@ -1494,7 +1492,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             editor.putString("${key}_lat", pos.latitude.toString())
             editor.putString("${key}_lng", pos.longitude.toString())
         }
-        editor.apply()
+        editor.commit()
         makeStatePrefsWorldReadable()
     }
 
@@ -1515,12 +1513,13 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         sendStateTo(currentTarget(channel), channel, true, pos, methodsFor(channel))
     }
 
-    private fun sendStateTo(
+     private fun sendStateTo(
         targetPkg: String?,
         channel: String,
         playing: Boolean,
         pos: LatLng?,
-        methods: Long
+        methods: Long,
+        force: Boolean = false
     ) {
         if (targetPkg.isNullOrEmpty()) return
         runCatching {
@@ -1536,8 +1535,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                     .putExtra("stopmode", stopModeFor(channel))
                     .putExtra("block_turbo", blockTurboFor(channel))
                     .putExtra("block_keywords", "terima,terima pesanan,accept")
-                    .putExtra("block_turbo", blockTurboFor(channel))
-                    .putExtra("block_keywords", "terima,terima pesanan,accept")
+                    .putExtra("force_play", force)
             )
         }
     }
