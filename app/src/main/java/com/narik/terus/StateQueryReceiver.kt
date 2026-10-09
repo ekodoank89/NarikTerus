@@ -40,6 +40,11 @@ class StateQueryReceiver : BroadcastReceiver() {
                         "trigger_enabled",
                         prefs.getBoolean("${channel}_trigger_enabled", true)
                     )
+                    .putExtra(
+                        "block_turbo",
+                        prefs.getBoolean("${channel}_blockturbo", false)
+                    )
+                    .putExtra("block_keywords", "terima,terima pesanan,accept")
                     .putExtra("stopmode", mode)
             )
         }
