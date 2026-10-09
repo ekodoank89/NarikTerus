@@ -67,4 +67,8 @@
     <string name="row_mode_gjk">Mode auto-stop GJK</string>
     <string name="mode_notif">Notif order (saat order muncul)</string>
     <string name="mode_terima">Terima order (saat tap tombol terima)</string>
+    <string name="row_a11y_perm">Aksesibilitas (klik Terima)</string>
+    <string name="a11y_on">AKTIF</string>
+    <string name="a11y_off">BELUM AKTIF — tap untuk buka pengaturan</string>
+    <string name="a11y_desc">Menangkap klik tombol Terima order di aplikasi target</string>
 </resources>
