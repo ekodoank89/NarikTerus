@@ -139,6 +139,10 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private lateinit var valTriggerGjk: TextView
     private lateinit var rowA11yPerm: View
     private lateinit var valA11yPerm: TextView
+    private lateinit var rowBlockGrb: View
+    private lateinit var rowBlockGjk: View
+    private lateinit var valBlockGrb: TextView
+    private lateinit var valBlockGjk: TextView
 
     private var map: GoogleMap? = null
     private var followMode = false
@@ -242,6 +246,10 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         valModeGjk = findViewById(R.id.val_mode_gjk)
         rowA11yPerm = findViewById(R.id.row_a11y_perm)
         valA11yPerm = findViewById(R.id.val_a11y_perm)
+        rowBlockGrb = findViewById(R.id.row_block_grb)
+        rowBlockGjk = findViewById(R.id.row_block_gjk)
+        valBlockGrb = findViewById(R.id.val_block_grb)
+        valBlockGjk = findViewById(R.id.val_block_gjk)
         keepOverlaysClearOfSystemBars()
         // Real-time auto-stop: receiver ini menghentikan channel (jitter +
         // marker + tombol) seketika saat hook melaporkan order masuk.
@@ -316,6 +324,18 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         }
         rowA11yPerm.setOnClickListener {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        }
+        rowBlockGrb.setOnClickListener {
+            statePrefs.edit().putBoolean("grb_blockturbo", !blockTurboFor("grb")).apply()
+            val pos = dotFor("grb")?.position ?: markerFor("grb")?.position
+            sendStateTo(grbTarget, "grb", playingFor("grb"), pos, grbMethods)
+            refreshSetLabels()
+        }
+        rowBlockGjk.setOnClickListener {
+            statePrefs.edit().putBoolean("gjk_blockturbo", !blockTurboFor("gjk")).apply()
+            val pos = dotFor("gjk")?.position ?: markerFor("gjk")?.position
+            sendStateTo(gjkTarget, "gjk", playingFor("gjk"), pos, gjkMethods)
+            refreshSetLabels()
         }
 
         btnCloseMenu.setOnClickListener {
@@ -595,6 +615,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         }
         valA11yPerm.text = if (isA11yEnabled())
             getString(R.string.a11y_on) else getString(R.string.a11y_off)
+        valBlockGrb.text = if (blockTurboFor("grb")) "AKTIF" else "MATI"
+        valBlockGjk.text = if (blockTurboFor("gjk")) "AKTIF" else "MATI"
     }
 
     private fun methodsLabel(mask: Long): String {
@@ -741,6 +763,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private fun stopModeFor(channel: String): String =
         statePrefs.getString("${channel}_stopmode", "notif") ?: "notif"
         
+    /** Blokir auto-terima Orderan Turbo per channel. */
     private fun blockTurboFor(channel: String): Boolean =
         statePrefs.getBoolean("${channel}_blockturbo", false)
         
@@ -1472,6 +1495,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                     .putExtra("trigger_keywords", triggerFor(channel))
                     .putExtra("trigger_enabled", triggerEnabled(channel))
                     .putExtra("stopmode", stopModeFor(channel))
+                    .putExtra("block_turbo", blockTurboFor(channel))
+                    .putExtra("block_keywords", "terima,terima pesanan,accept")
                     .putExtra("block_turbo", blockTurboFor(channel))
                     .putExtra("block_keywords", "terima,terima pesanan,accept")
             )
