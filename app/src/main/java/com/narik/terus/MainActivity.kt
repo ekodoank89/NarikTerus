@@ -745,6 +745,39 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             .setNegativeButton(android.R.string.cancel, null)
             .show()
     }
+    
+    private fun showRecentList(channel: String) {
+        val list = statePrefs.getString("recent_$channel", null)
+            ?.split('\n')?.filter { it.isNotBlank() } ?: emptyList()
+
+        val container = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        if (list.isEmpty()) {
+            container.addView(TextView(this).apply {
+                text = getString(R.string.recent_empty)
+                setPadding(48, 24, 48, 24)
+            })
+        } else {
+            for (item in list) {
+                container.addView(TextView(this).apply {
+                    text = item
+                    textSize = 12f
+                    setPadding(48, 20, 48, 20)
+                    setOnClickListener {
+                        val cm =
+                            getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        cm.setPrimaryClip(ClipData.newPlainText("payload", item))
+                        Toast.makeText(context, R.string.recent_copied, Toast.LENGTH_SHORT).show()
+                    }
+                })
+            }
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle(R.string.recent_title)
+            .setView(android.widget.ScrollView(this).apply { addView(container) })
+            .setPositiveButton(android.R.string.ok, null)
+            .show()
+    }
 
     // ------------------------------------------------------------ favorite
 
