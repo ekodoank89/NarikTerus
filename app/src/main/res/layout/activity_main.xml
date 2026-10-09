@@ -434,6 +434,31 @@
                     android:textColor="#202124"
                     android:textSize="14sp" />
             </LinearLayout>
+            
+            <!-- Aksesibilitas (jalur Terima order) -->
+            <LinearLayout
+                android:id="@+id/row_a11y_perm"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="?attr/selectableItemBackground"
+                android:orientation="vertical"
+                android:paddingHorizontal="18dp"
+                android:paddingVertical="10dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/row_a11y_perm"
+                    android:textColor="@color/row_title"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:id="@+id/val_a11y_perm"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="#202124"
+                    android:textSize="14sp" />
+            </LinearLayout>
                         
                     </LinearLayout>
                 </LinearLayout>
