@@ -35,6 +35,7 @@ class MainHook : IXposedHookLoadPackage {
         private const val MAX_PENDING = 10
         private const val EVENT_LOG_INTERVAL_MS = 1_000L
         private const val MANUAL_TOUCH_WINDOW_MS = 800L
+        private const val GRACE_MS = 10_000L
     }
 
     data class State(
@@ -58,6 +59,9 @@ class MainHook : IXposedHookLoadPackage {
     /** Waktu sentuhan fisik terakhir di proses target (beda manual vs programatik). */
     @Volatile
     private var lastTouchAt = 0L
+    /** Batas grace: pemicu auto-stop baru aktif GRACE_MS setelah play. */
+    @Volatile
+    private var armedAt = 0L
 
     private val lastServeLog = AtomicLong(0L)
     private val lastRecentLog = AtomicLong(0L)
@@ -122,6 +126,7 @@ class MainHook : IXposedHookLoadPackage {
                     playing, lat, lng, methods, trigger, triggerEnabled,
                     stopMode, blockAuto, blockKw
                 )
+                if (playing) armedAt = System.currentTimeMillis()
                 if (oldPlaying != playing || oldPlaying == null) {
                     XposedBridge.log(
                         "[NarikTerus] $newChannel: state -> " +
@@ -524,6 +529,9 @@ class MainHook : IXposedHookLoadPackage {
         }
         sendToModule(HookContract.ACTION_RECENT, ch, payload, false)
 
+        // Grace period: payload antrean & window startup tidak boleh memicu stop
+        if (System.currentTimeMillis() - armedAt < GRACE_MS) return
+        
         // ===== BLOKIR TURBO (level FCM) =====
         // Payload alokasi order + blokir aktif + tidak ada sentuhan fisik baru
         // -> TIDAK menerima otomatis: hapus state play agar spoof diam
