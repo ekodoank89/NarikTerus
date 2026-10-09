@@ -524,6 +524,23 @@ class MainHook : IXposedHookLoadPackage {
         }
         sendToModule(HookContract.ACTION_RECENT, ch, payload, false)
 
+        // ===== BLOKIR TURBO (level FCM) =====
+        // Payload alokasi order + blokir aktif + tidak ada sentuhan fisik baru
+        // -> TIDAK menerima otomatis: hapus state play agar spoof diam
+        val isAlloc = payload.contains("dx_alloc_display_job") ||
+            payload.contains("alloc")
+        if (st.blockAutoAccept && isAlloc &&
+            System.currentTimeMillis() - lastTouchAt > 800L
+        ) {
+            XposedBridge.log(
+                "[NarikTerus] $ch: TURBO DIBLOKIR di level FCM -> order manual"
+            )
+            // putuskan spoof seketika; overlay tetap tampil untuk tap manual
+            state = st.copy(playing = false)
+            sendToModule(HookContract.ACTION_TRIGGER, ch, payload, true)
+            return
+        }
+
         // Filter mode: "terima" hanya pada CLICK; "notif" hanya pada kejadian muncul
         val isClick = payload.startsWith("CLICK{")
         if (isClick != (st.stopMode == "terima")) return
