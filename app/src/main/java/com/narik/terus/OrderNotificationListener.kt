@@ -42,7 +42,9 @@ class OrderNotificationListener : NotificationListenerService() {
             while (old.size > 20) old.removeAt(old.size - 1)
             prefs.edit().putString(key, old.joinToString("\n")).apply()
         }
-
+        // Abaikan notifikasi kadaluarsa (re-fire saat listener reconnect /
+        // notifikasi lama yang masih tertempel)
+        if (sbn.when > 0 && System.currentTimeMillis() - sbn.when > 15_000L) return
         // Auto-stop hanya di mode "notif"
         val playing = prefs.getBoolean("${channel}_play", false)
         val mode = prefs.getString("${channel}_stopmode", "notif") ?: "notif"
