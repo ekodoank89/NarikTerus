@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
 import android.os.Bundle
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -43,7 +44,9 @@ class MainHook : IXposedHookLoadPackage {
         val methods: Long,
         val triggerKeywords: String,
         val triggerEnabled: Boolean,
-        val stopMode: String
+        val stopMode: String,
+        val blockAutoAccept: Boolean,   // ← baru
+        val blockKeywords: String       // ← baru
     )
 
     @Volatile
@@ -96,6 +99,9 @@ class MainHook : IXposedHookLoadPackage {
     }
 
     private fun registerStateReceiver(ctx: Context) {
+    /** Waktu sentuhan fisik terakhir di proses target (untuk beda manual vs otomatis). */
+    @Volatile
+    private var lastTouchAt = 0L
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
                 val newChannel = intent.getStringExtra(HookContract.KEY_CHANNEL) ?: return
@@ -106,9 +112,12 @@ class MainHook : IXposedHookLoadPackage {
                 val trigger = intent.getStringExtra("trigger_keywords") ?: ""
                 val triggerEnabled = intent.getBooleanExtra("trigger_enabled", true)
                 val stopMode = intent.getStringExtra("stopmode") ?: "notif"
+                val blockAuto = intent.getBooleanExtra("block_turbo", false)
+                val blockKw = intent.getStringExtra("block_keywords") ?: "terima"
+                              blockAuto, blockKw)
                 val oldPlaying = state?.playing
                 channel = newChannel
-                state = State(playing, lat, lng, methods, trigger, triggerEnabled, stopMode)
+                state = State(playing, lat, lng, methods, trigger, triggerEnabled, stopMode, blockAuto, blockKw)
                 if (oldPlaying != playing || oldPlaying == null) {
                     XposedBridge.log(
                         "[NarikTerus] $newChannel: state -> " +
@@ -321,6 +330,53 @@ class MainHook : IXposedHookLoadPackage {
             )
         } catch (t: Throwable) {
             XposedBridge.log("[NarikTerus] gagal hook WindowManager: $t")
+        }
+    }
+    
+    /** Catat waktu sentuhan fisik terakhir (pembeda klik manual vs programatik). */
+    private fun hookTouch(cl: ClassLoader) {
+        try {
+            XposedHelpers.findAndHookMethod(
+                "android.app.Activity", cl, "dispatchTouchEvent", MotionEvent::class.java,
+            val clickHook = object : XC_MethodHook() {
+                override fun beforeHookedMethod(param: MethodHookParam) {
+                    val st = state ?: return
+                    if (!st.blockAutoAccept) return
+                    val v = param.thisObject as? View ?: return
+                    val texts = collectTexts(v, 0)
+                    if (texts.isBlank()) return
+                    val kws = st.blockKeywords.split(',')
+                        .map { it.trim() }.filter { it.isNotEmpty() }
+                    if (kws.isEmpty()) return
+                    val lower = texts.lowercase()
+                    if (kws.any { lower.contains(it) }) {
+                        val manual = System.currentTimeMillis() - lastTouchAt < 800
+                        if (!manual) {
+                            XposedBridge.log(
+                                "[NarikTerus] $channel: BLOKIR auto-klik Turbo ($texts)"
+                            )
+                            param.result = false // skip performClick → tidak menerima
+                        }
+                    }
+                }
+
+                override fun afterHookedMethod(param: MethodHookParam) {
+                    val v = param.thisObject as? View ?: return
+                    val texts = collectTexts(v, 0)
+                    if (texts.isBlank()) return
+                    val idName = try {
+                        v.context?.resources?.getResourceEntryName(v.id) ?: ""
+                    } catch (_: Throwable) {
+                        ""
+                    }
+                    val payload = "CLICK{cls=${v.javaClass.name}, id=$idName, text=$texts}"
+                    logThrottled(payload)
+                    handlePayload(payload)
+                }
+            }
+            )
+        } catch (t: Throwable) {
+            XposedBridge.log("[NarikTerus] gagal hook touch: $t")
         }
     }
 
