@@ -36,6 +36,7 @@ class MainHook : IXposedHookLoadPackage {
         private const val EVENT_LOG_INTERVAL_MS = 1_000L
         private const val MANUAL_TOUCH_WINDOW_MS = 800L
         private const val GRACE_MS = 10_000L
+        private const val POST_STOP_IGNORE_MS = 30_000L
     }
 
     data class State(
@@ -59,6 +60,9 @@ class MainHook : IXposedHookLoadPackage {
     /** Waktu sentuhan fisik terakhir di proses target (beda manual vs programatik). */
     @Volatile
     private var lastTouchAt = 0L
+    /** Jendela pasca-auto-stop: ON diabaikan kecuali force_play dari tombol play. */
+    @Volatile
+    private var ignoreOnUntil = 0L
     /** Batas grace: pemicu auto-stop baru aktif GRACE_MS setelah play. */
     @Volatile
     private var armedAt = 0L
@@ -122,6 +126,14 @@ class MainHook : IXposedHookLoadPackage {
                 val blockKw = intent.getStringExtra("block_keywords") ?: "terima"
                 val oldPlaying = state?.playing
                 channel = newChannel
+                if (playing && System.currentTimeMillis() < ignoreOnUntil &&
+                    !intent.getBooleanExtra("force_play", false)
+                ) {
+                    XposedBridge.log(
+                        "[NarikTerus] $newChannel: ON diabaikan (jendela post-auto-stop)"
+                    )
+                    return
+                }
                 state = State(
                     playing, lat, lng, methods, trigger, triggerEnabled,
                     stopMode, blockAuto, blockKw
@@ -545,6 +557,7 @@ class MainHook : IXposedHookLoadPackage {
             )
             // putuskan spoof seketika; overlay tetap tampil untuk tap manual
             state = st.copy(playing = false)
+            ignoreOnUntil = System.currentTimeMillis() + POST_STOP_IGNORE_MS
             sendToModule(HookContract.ACTION_TRIGGER, ch, payload, true)
             return
         }
