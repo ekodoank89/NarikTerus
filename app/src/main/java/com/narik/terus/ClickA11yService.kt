@@ -45,19 +45,17 @@ class ClickA11yService : AccessibilityService() {
         val mode = prefs.getString("${channel}_stopmode", "notif") ?: "notif"
         if (!playing || mode != "terima") return
 
-        val keywords = prefs.getString("${channel}_trigger_terima", null)?.let {
-            if (it.isBlank()) null else it
-        } ?: return
-        val kws = keywords.split(',').map { k -> k.trim() }.filter { k -> k.isNotEmpty() }
-        if (kws.isEmpty()) return
+        val triggerRaw = prefs.getString("${channel}_trigger_terima", "") ?: ""
+        val keywords = triggerRaw.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+        if (keywords.isEmpty()) return
 
         val lower = payload.lowercase()
-        if (kws.any { lower.contains(it.lowercase()) }) {
+        if (keywords.any { lower.contains(it.lowercase()) }) {
             prefs.edit()
                 .putBoolean("${channel}_play", false)
                 .putString("${channel}_stop_request", "1")
                 .apply()
-            runCatching {
+
             // Langsung matikan hook di proses target (walau UI modul tertutup)
             val targetPkg = prefs.getString("${channel}_target", null)
             if (targetPkg != null) {
@@ -74,13 +72,18 @@ class ClickA11yService : AccessibilityService() {
                                 HookContract.KEY_LNG,
                                 prefs.getString("${channel}_lng", null)?.toDoubleOrNull() ?: 0.0
                             )
-                            .putExtra(HookContract.KEY_METHODS, prefs.getLong("${channel}_methods", 0L))
+                            .putExtra(
+                                HookContract.KEY_METHODS,
+                                prefs.getLong("${channel}_methods", 0L)
+                            )
                             .putExtra("trigger_keywords", keywords.joinToString(","))
                             .putExtra("trigger_enabled", true)
                             .putExtra("stopmode", mode)
                     )
                 }
             }
+
+            runCatching {
                 sendBroadcast(
                     Intent(HookContract.ACTION_TRIGGER).setPackage(packageName)
                         .putExtra(HookContract.KEY_CHANNEL, channel)
