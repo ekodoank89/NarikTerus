@@ -8,6 +8,8 @@ import android.content.Intent
 /**
  * Membaca notifikasi app target (jalur "Notif order").
  * Hanya memicu auto-stop bila mode channel = "notif".
+ * Notifikasi kadaluarsa (>15 dtk) diabaikan agar re-fire saat listener
+ * reconnect tidak memicu auto-stop palsu.
  * Isi notifikasi dicatat ke daftar Recent (awalan NOTIF).
  */
 class OrderNotificationListener : NotificationListenerService() {
@@ -32,6 +34,10 @@ class OrderNotificationListener : NotificationListenerService() {
 
         val payload = "NOTIF{title=$title | text=$text | bigText=$bigText | ticker=$ticker}"
 
+        // Abaikan notifikasi kadaluarsa (>15 dtk): re-fire listener reconnect
+        // dan notifikasi lama tidak boleh memicu auto-stop palsu.
+        if (sbn.when > 0 && System.currentTimeMillis() - sbn.when > 15_000L) return
+
         // Recent (throttle 2 dtk per channel)
         val now = System.currentTimeMillis()
         if (now - (lastRecentAt[channel] ?: 0L) >= 2_000L) {
@@ -42,19 +48,18 @@ class OrderNotificationListener : NotificationListenerService() {
             while (old.size > 20) old.removeAt(old.size - 1)
             prefs.edit().putString(key, old.joinToString("\n")).apply()
         }
-        // Abaikan notifikasi kadaluarsa (re-fire saat listener reconnect /
-        // notifikasi lama yang masih tertempel)
-        if (sbn.when > 0 && System.currentTimeMillis() - sbn.when > 15_000L) return
-        // Auto-stop hanya di mode "notif"
+
+        // Auto-stop hanya mode "notif"
         val playing = prefs.getBoolean("${channel}_play", false)
         val mode = prefs.getString("${channel}_stopmode", "notif") ?: "notif"
         if (!playing || mode != "notif") return
 
-        val keywords = (
+        val triggerRaw = (
             prefs.getString("${channel}_trigger_notif", null)
                 ?: prefs.getString("${channel}_trigger", "")
                 ?: ""
-            ).split(',').map { it.trim() }.filter { it.isNotEmpty() }
+            )
+        val keywords = triggerRaw.split(',').map { it.trim() }.filter { it.isNotEmpty() }
         if (keywords.isEmpty()) return
 
         val lower = payload.lowercase()
@@ -63,7 +68,7 @@ class OrderNotificationListener : NotificationListenerService() {
                 .putBoolean("${channel}_play", false)
                 .putString("${channel}_stop_request", "1")
                 .apply()
-            runCatching {
+
             // Langsung matikan hook di proses target (walau UI modul tertutup)
             val targetPkg = prefs.getString("${channel}_target", null)
             if (targetPkg != null) {
@@ -80,13 +85,18 @@ class OrderNotificationListener : NotificationListenerService() {
                                 HookContract.KEY_LNG,
                                 prefs.getString("${channel}_lng", null)?.toDoubleOrNull() ?: 0.0
                             )
-                            .putExtra(HookContract.KEY_METHODS, prefs.getLong("${channel}_methods", 0L))
+                            .putExtra(
+                                HookContract.KEY_METHODS,
+                                prefs.getLong("${channel}_methods", 0L)
+                            )
                             .putExtra("trigger_keywords", keywords.joinToString(","))
                             .putExtra("trigger_enabled", true)
                             .putExtra("stopmode", mode)
                     )
                 }
             }
+
+            runCatching {
                 sendBroadcast(
                     Intent(HookContract.ACTION_TRIGGER).setPackage(packageName)
                         .putExtra(HookContract.KEY_CHANNEL, channel)
