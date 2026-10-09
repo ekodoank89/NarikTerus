@@ -319,16 +319,12 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         rowTriggerGjk.setOnClickListener { showTriggerEditor("gjk") }
         rowModeGrb.setOnClickListener { showModePicker("grb") }
         rowModeGjk.setOnClickListener { showModePicker("gjk") }
-        rowNotifPerm.setOnClickListener {
-            startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-        }
+
         rowNotifPerm.setOnClickListener {
             Toast.makeText(this, R.string.toast_perm_open, Toast.LENGTH_SHORT).show()
             startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
         }
-        rowA11yPerm.setOnClickListener {
-            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-        }
+
         rowA11yPerm.setOnClickListener {
             Toast.makeText(this, R.string.toast_perm_open, Toast.LENGTH_SHORT).show()
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
@@ -337,12 +333,24 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             statePrefs.edit().putBoolean("grb_blockturbo", !blockTurboFor("grb")).apply()
             val pos = dotFor("grb")?.position ?: markerFor("grb")?.position
             sendStateTo(grbTarget, "grb", playingFor("grb"), pos, grbMethods)
+            Toast.makeText(
+                this,
+                if (blockTurboFor("grb")) R.string.toast_block_turbo_on
+                else R.string.toast_block_turbo_off,
+                Toast.LENGTH_SHORT
+            ).show()
             refreshSetLabels()
         }
         rowBlockGjk.setOnClickListener {
             statePrefs.edit().putBoolean("gjk_blockturbo", !blockTurboFor("gjk")).apply()
             val pos = dotFor("gjk")?.position ?: markerFor("gjk")?.position
             sendStateTo(gjkTarget, "gjk", playingFor("gjk"), pos, gjkMethods)
+            Toast.makeText(
+                this,
+                if (blockTurboFor("gjk")) R.string.toast_block_turbo_on
+                else R.string.toast_block_turbo_off,
+                Toast.LENGTH_SHORT
+            ).show()
             refreshSetLabels()
         }
 
@@ -593,34 +601,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         valMethodGjk.text = methodsLabel(gjkMethods)
         valTriggerGrb.text = if (!triggerEnabled("grb")) "(MATI)" else triggerFor("grb").ifEmpty { "(nonaktif)" }
         valTriggerGjk.text = if (!triggerEnabled("gjk")) "(MATI)" else triggerFor("gjk").ifEmpty { "(nonaktif)" }
-        rowBlockGrb.setOnClickListener {
-            statePrefs.edit().putBoolean("grb_blockturbo", !blockTurboFor("grb")).apply()
-            val playing = playingFor("grb")
-            val pos = dotFor("grb")?.position ?: markerFor("grb")?.position
-            sendStateTo(grbTarget, "grb", playing, pos, grbMethods)
-            Toast.makeText(
-                this,
-                if (blockTurboFor("grb")) R.string.toast_block_turbo_on
-                else R.string.toast_block_turbo_off,
-                Toast.LENGTH_SHORT
-            ).show()
-            refreshSetLabels()
-        }
-        
-        rowBlockGjk.setOnClickListener {
-            statePrefs.edit().putBoolean("gjk_blockturbo", !blockTurboFor("gjk")).apply()
-            val playing = playingFor("gjk")
-            val pos = dotFor("gjk")?.position ?: markerFor("gjk")?.position
-            sendStateTo(gjkTarget, "gjk", playing, pos, grbMethods)
-            Toast.makeText(
-                this,
-                if (blockTurboFor("gjk")) R.string.toast_block_turbo_on
-                else R.string.toast_block_turbo_off,
-                Toast.LENGTH_SHORT
-            ).show()
-            refreshSetLabels()
-        }
-        
         valModeGrb.text = if (stopModeFor("grb") == "terima")
             getString(R.string.mode_terima) else getString(R.string.mode_notif)
         valModeGjk.text = if (stopModeFor("gjk") == "terima")
@@ -725,12 +705,14 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 val flag = HookContract.METHOD_DEFS[which].first
                 sel = if (isChecked) sel or flag else sel and flag.inv()
             }
-            .setPositiveButton("Simpan") { _, _ -> applyMethods(channel, sel) }
+            .setPositiveButton("Simpan") { _, _ ->
+                applyMethods(channel, sel)
                 Toast.makeText(
                     this,
                     "Metode ${channel.uppercase()} disimpan",
                     Toast.LENGTH_SHORT
                 ).show()
+            }
             .setNegativeButton("Batal", null)
             .show()
     }
