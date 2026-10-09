@@ -73,4 +73,7 @@
     <string name="a11y_desc">Menangkap klik tombol Terima order di aplikasi target</string>
     <string name="row_block_grb">Blokir auto-terima Turbo GRB</string>
     <string name="row_block_gjk">Blokir auto-terima Turbo GJK</string>
+    <string name="toast_block_turbo_on">Blokir Turbo AKTIF — orderan otomatis akan diblokir</string>
+    <string name="toast_block_turbo_off">Blokir Turbo MATI</string>
+    <string name="toast_perm_open">Membuka pengaturan izin…</string>
 </resources>
