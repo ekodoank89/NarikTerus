@@ -545,30 +545,31 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         val key = "${channel}_trigger_$mode"
         var v = statePrefs.getString(key, null)
         if (v == null) {
-            // Migrasi: nilai lama (sebelum ada mode) milik mode "notif"
             v = if (mode == "notif") (statePrefs.getString("${channel}_trigger", "") ?: "") else ""
-                statePrefs.edit()
-                    .putString("${channel}_trigger_" + stopModeFor(channel), input.text.toString().trim())
-                    .apply()
+            statePrefs.edit().putString(key, v).apply()
         }
         return v
-    }"
+    }
 
     private fun refreshSetLabels() {
         valTargetGrb.text = grbTarget
         valMethodGrb.text = methodsLabel(grbMethods)
         valTargetGjk.text = gjkTarget
         valMethodGjk.text = methodsLabel(gjkMethods)
-        valTriggerGrb.text = triggerFor("grb").ifEmpty { "(nonaktif)" }
-        valTriggerGjk.text = triggerFor("gjk").ifEmpty { "(nonaktif)" }
-        valNotifPerm.text = if (NotificationManagerCompat
-        getEnabledListenerPackages(this).contains(packageName)
-        ) getString(R.string.notif_on) else getString(R.string.notif_off)
+        valTriggerGrb.text = if (!triggerEnabled("grb")) "(MATI)" else triggerFor("grb").ifEmpty { "(nonaktif)" }
+        valTriggerGjk.text = if (!triggerEnabled("gjk")) "(MATI)" else triggerFor("gjk").ifEmpty { "(nonaktif)" }
         valModeGrb.text = if (stopModeFor("grb") == "terima")
             getString(R.string.mode_terima) else getString(R.string.mode_notif)
         valModeGjk.text = if (stopModeFor("gjk") == "terima")
             getString(R.string.mode_terima) else getString(R.string.mode_notif)
-                  .putExtra("stopmode", stopModeFor(channel))
+        valNotifPerm.text = try {
+            val ok = androidx.core.app.NotificationManagerCompat
+                .getEnabledListenerPackages(this)
+                .contains(packageName)
+            if (ok) getString(R.string.notif_on) else getString(R.string.notif_off)
+        } catch (_: Throwable) {
+            getString(R.string.notif_off)
+        }
     }
 
     private fun methodsLabel(mask: Long): String {
@@ -676,89 +677,38 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         statePrefs.getBoolean("${channel}_trigger_enabled", true)
 
     private fun showTriggerEditor(channel: String) {
-        val view = layoutInflater.inflate(R.layout.dialog_trigger, null)
-
-        val toggle = view.findViewById<TextView>(R.id.toggle_trigger)
-        val input = view.findViewById<EditText>(R.id.input_trigger)
-        val btnSave = view.findViewById<Button>(R.id.btn_trigger_save)
-        val recentList = view.findViewById<LinearLayout>(R.id.recent_list)
-
-        fun refreshToggle() {
-            toggle.text = getString(
-                R.string.trigger_enabled,
-                if (triggerEnabled(channel)) "AKTIF" else "MATI"
-            )
+        val input = EditText(this).apply {
+            hint = getString(R.string.trigger_hint)
+            setSingleLine()
+            setText(triggerFor(channel))
         }
-        refreshToggle()
-        input.setText(triggerFor(channel))
-
-        toggle.setOnClickListener {
-            statePrefs.edit()
-                .putBoolean("${channel}_trigger_enabled", !triggerEnabled(channel))
-                .apply()
-            refreshToggle()
-            // Sinkronkan segera ke proses target (play maupun stop)
-            val playing = playingFor(channel)
-            val pos = dotFor(channel)?.position ?: markerFor(channel)?.position
-            sendStateTo(currentTarget(channel), channel, playing, pos, methodsFor(channel))
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val d = (16 * resources.displayMetrics.density).toInt()
+            setPadding(d, d / 2, d, 0)
+            addView(input)
         }
-
-        btnSave.setOnClickListener {
-            statePrefs.edit()
-                .putString("${channel}_trigger", input.text.toString().trim())
-                .apply()
-            val playing = playingFor(channel)
-            val pos = dotFor(channel)?.position ?: markerFor(channel)?.position
-            sendStateTo(currentTarget(channel), channel, playing, pos, methodsFor(channel))
-            Toast.makeText(this, R.string.trigger_saved, Toast.LENGTH_SHORT).show()
-            refreshSetLabels()
-        }
-
-        // Recent list (tap = salin; tekan lama = hapus satu entri)
-        fun refreshRecent() {
-            recentList.removeAllViews()
-            val list = statePrefs.getString("recent_$channel", null)
-                ?.split('\n')?.filter { it.isNotBlank() } ?: emptyList()
-            if (list.isEmpty()) {
-                recentList.addView(TextView(this).apply {
-                    text = getString(R.string.recent_empty)
-                    setPadding(0, 16, 0, 16)
-                })
-                return
-            }
-            for (item in list) {
-                recentList.addView(TextView(this).apply {
-                    text = item
-                    textSize = 12f
-                    setPadding(0, 14, 0, 14)
-                    setOnClickListener {
-                        val cm = getSystemService(
-                            Context.CLIPBOARD_SERVICE
-                        ) as ClipboardManager
-                        cm.setPrimaryClip(ClipData.newPlainText("payload", item))
-                        Toast.makeText(context, R.string.recent_copied, Toast.LENGTH_SHORT)
-                            .show()
-                    }
-                    setOnLongClickListener {
-                        val cur = statePrefs.getString("recent_$channel", null)
-                            ?.split('\n')?.filter { it != item } ?: emptyList()
-                        statePrefs.edit()
-                            .putString("recent_$channel", cur.joinToString("\n"))
-                            .apply()
-                        refreshRecent()
-                        true
-                    }
-                })
-            }
-        }
-        refreshRecent()
-
         AlertDialog.Builder(this)
             .setTitle(
                 if (channel == "grb") getString(R.string.row_trigger_grb)
                 else getString(R.string.row_trigger_gjk)
             )
-            .setView(view)
+            .setView(container)
+            .setPositiveButton(R.string.trigger_save) { _, _ ->
+                statePrefs.edit()
+                    .putString(
+                        "${channel}_trigger_" + stopModeFor(channel),
+                        input.text.toString().trim()
+                    )
+                    .apply()
+                val playing = playingFor(channel)
+                val pos = dotFor(channel)?.position ?: markerFor(channel)?.position
+                sendStateTo(currentTarget(channel), channel, playing, pos, methodsFor(channel))
+                Toast.makeText(this, R.string.trigger_saved, Toast.LENGTH_SHORT).show()
+                refreshSetLabels()
+            }
+            .setNeutralButton(R.string.recent_open) { _, _ -> showRecentList(channel) }
+            .setNegativeButton(android.R.string.cancel, null)
             .show()
     }
     
@@ -1452,7 +1402,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                     .putExtra(HookContract.KEY_LNG, pos?.longitude ?: 0.0)
                     .putExtra(HookContract.KEY_METHODS, methods)
                     .putExtra("trigger_keywords", triggerFor(channel))
-                    .putExtra("trigger_enabled", triggerEnabled(channel))   // ← TAMBAHAN
+                    .putExtra("trigger_enabled", triggerEnabled(channel))
+                    .putExtra("stopmode", stopModeFor(channel))
             )
         }
     }
