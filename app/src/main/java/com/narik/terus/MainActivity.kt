@@ -731,17 +731,44 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         statePrefs.getBoolean("${channel}_trigger_enabled", true)
 
     private fun showTriggerEditor(channel: String) {
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val d = (16 * resources.displayMetrics.density).toInt()
+            setPadding(d, d / 2, d, 0)
+        }
+
+        // Saklar AKTIF/MATI trigger
+        val toggle = TextView(this).apply {
+            setPadding(0, 0, 0, 10)
+            setTextColor(0xFF1A73E8.toInt())
+            setTypeface(null, Typeface.BOLD)
+            textSize = 14f
+            setOnClickListener {
+                val now = !triggerEnabled(channel)
+                statePrefs.edit().putBoolean("${channel}_trigger_enabled", now).apply()
+                text = "Triger: ${if (now) "AKTIF" else "MATI"}"
+                // Sinkronkan segera ke proses target
+                val playing = playingFor(channel)
+                val pos = dotFor(channel)?.position ?: markerFor(channel)?.position
+                sendStateTo(currentTarget(channel), channel, playing, pos, methodsFor(channel))
+                refreshSetLabels()
+            }
+        }
+
         val input = EditText(this).apply {
             hint = getString(R.string.trigger_hint)
             setSingleLine()
             setText(triggerFor(channel))
         }
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            val d = (16 * resources.displayMetrics.density).toInt()
-            setPadding(d, d / 2, d, 0)
-            addView(input)
+
+        container.addView(toggle)
+        container.addView(input)
+
+        fun refreshToggle() {
+            toggle.text = "Triger: ${if (triggerEnabled(channel)) "AKTIF" else "MATI"}"
         }
+        refreshToggle()
+
         AlertDialog.Builder(this)
             .setTitle(
                 if (channel == "grb") getString(R.string.row_trigger_grb)
