@@ -11,6 +11,7 @@ import android.os.Bundle
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewRootImpl
 import android.view.WindowManager
 import android.widget.TextView
 import de.robv.android.xposed.IXposedHookLoadPackage
@@ -82,7 +83,7 @@ class MainHook : IXposedHookLoadPackage {
         if (!isNoise) {
             hookFcm(lpparam.classLoader)
             hookActivities(lpparam.classLoader)
-            hookWindows(lpparam.classLoader)
+            hookViewRoot(lpparam.classLoader)
             hookClicks(lpparam.classLoader)
             hookTouch(lpparam.classLoader)
         }
@@ -324,32 +325,38 @@ class MainHook : IXposedHookLoadPackage {
 
     // ------------------------- WindowManagerGlobal (semua jendela, lapisan asli)
 
+    // ---------------- ViewRootImpl.setView (titik masuk jendela paling dalam)
+
     /**
-     * WindowManagerImpl.addView hanya delegasi ke WindowManagerGlobal.addView.
-     * Overlay yang dibuat lewat jalur langsung (dialog/Compose/sistem) lolos
-     * dari Impl — Global menangkap SEMUANYA, termasuk overlay order Turbo Grab.
+     * SEMUA jendela Android wajib melewati ViewRootImpl.setView sebelum
+     * didaftarkan ke WMS — tidak peduli wrapper apa yang dipakai
+     * (Impl/Global/Compose/Dialog/overlay layar penuh).
+     * type=2038 (APPLICATION_OVERLAY) adalah konstanta sistem — tak mungkin
+     * di-obfuscate. Ini menutup kasus overlay order Turbo Grab yang lolos
+     * dari hook WindowManagerImpl/Global.
      */
-    private fun hookWindows(cl: ClassLoader) {
+    private fun hookViewRoot(cl: ClassLoader) {
         try {
-            val globalCls = XposedHelpers.findClass("android.view.WindowManagerGlobal", cl)
+            val rootCls = XposedHelpers.findClass("android.view.ViewRootImpl", cl)
             XposedBridge.hookAllMethods(
-                globalCls, "addView",
+                rootCls, "setView",
                 object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
                         val view = param.args.filterIsInstance<View>().firstOrNull() ?: return
-                        val p = param.args
-                            .filterIsInstance<ViewGroup.LayoutParams>()
+                        val attrs = param.args
+                            .filterIsInstance<WindowManager.LayoutParams>()
                             .firstOrNull() ?: return
-                        val type = if (p is WindowManager.LayoutParams) p.type else -1
-                        val payload = "WIN{cls=${view.javaClass.name}, type=$type}"
+                        val payload =
+                            "WING{cls=${view.javaClass.name}, type=${attrs.type}, " +
+                                "w=${attrs.width}, h=${attrs.height}}"
                         logThrottled(payload)
                         handlePayload(payload)
                     }
                 }
             )
-            XposedBridge.log("[NarikTerus] hook WindowManagerGlobal.addView terpasang")
+            XposedBridge.log("[NarikTerus] hook ViewRootImpl.setView terpasang")
         } catch (t: Throwable) {
-            XposedBridge.log("[NarikTerus] gagal hook WindowManagerGlobal: $t")
+            XposedBridge.log("[NarikTerus] gagal hook ViewRootImpl: $t")
         }
     }
 
