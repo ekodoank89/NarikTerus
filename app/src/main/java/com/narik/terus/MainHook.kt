@@ -322,19 +322,24 @@ class MainHook : IXposedHookLoadPackage {
         }
     }
 
-    // ------------------------- WindowManager (overlay/dialog/popup)
+    // ------------------------- WindowManagerGlobal (semua jendela, lapisan asli)
 
+    /**
+     * WindowManagerImpl.addView hanya delegasi ke WindowManagerGlobal.addView.
+     * Overlay yang dibuat lewat jalur langsung (dialog/Compose/sistem) lolos
+     * dari Impl — Global menangkap SEMUANYA, termasuk overlay order Turbo Grab.
+     */
     private fun hookWindows(cl: ClassLoader) {
         try {
-            val wmi = XposedHelpers.findClass("android.view.WindowManagerImpl", cl)
-            XposedHelpers.findAndHookMethod(
-                wmi, "addView",
-                View::class.java,
-                ViewGroup.LayoutParams::class.java,
+            val globalCls = XposedHelpers.findClass("android.view.WindowManagerGlobal", cl)
+            XposedBridge.hookAllMethods(
+                globalCls, "addView",
                 object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
-                        val view = param.args.getOrNull(0) ?: return
-                        val p = param.args.getOrNull(1) as? ViewGroup.LayoutParams ?: return
+                        val view = param.args.filterIsInstance<View>().firstOrNull() ?: return
+                        val p = param.args
+                            .filterIsInstance<ViewGroup.LayoutParams>()
+                            .firstOrNull() ?: return
                         val type = if (p is WindowManager.LayoutParams) p.type else -1
                         val payload = "WIN{cls=${view.javaClass.name}, type=$type}"
                         logThrottled(payload)
@@ -342,8 +347,9 @@ class MainHook : IXposedHookLoadPackage {
                     }
                 }
             )
+            XposedBridge.log("[NarikTerus] hook WindowManagerGlobal.addView terpasang")
         } catch (t: Throwable) {
-            XposedBridge.log("[NarikTerus] gagal hook WindowManager: $t")
+            XposedBridge.log("[NarikTerus] gagal hook WindowManagerGlobal: $t")
         }
     }
 
