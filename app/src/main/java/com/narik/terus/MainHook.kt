@@ -11,7 +11,6 @@ import android.os.Bundle
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
-import android.view.ViewRootImpl
 import android.view.WindowManager
 import android.widget.TextView
 import de.robv.android.xposed.IXposedHookLoadPackage
@@ -331,9 +330,8 @@ class MainHook : IXposedHookLoadPackage {
      * SEMUA jendela Android wajib melewati ViewRootImpl.setView sebelum
      * didaftarkan ke WMS — tidak peduli wrapper apa yang dipakai
      * (Impl/Global/Compose/Dialog/overlay layar penuh).
-     * type=2038 (APPLICATION_OVERLAY) adalah konstanta sistem — tak mungkin
-     * di-obfuscate. Ini menutup kasus overlay order Turbo Grab yang lolos
-     * dari hook WindowManagerImpl/Global.
+     * ViewRootImpl adalah kelas internal: di-resolve runtime via findClass,
+     * TANPA import statis.
      */
     private fun hookViewRoot(cl: ClassLoader) {
         try {
@@ -380,6 +378,14 @@ class MainHook : IXposedHookLoadPackage {
         } catch (_: Throwable) {
         }
         return sb.toString().trim().take(200)
+    }
+
+    /** Cek apakah view adalah root jendela (turunan ViewRootImpl) secara runtime. */
+    private fun isRootView(view: View): Boolean = try {
+        val rootCls = XposedHelpers.findClass("android.view.ViewRootImpl", null)
+        rootCls.isAssignableFrom(view.javaClass)
+    } catch (_: Throwable) {
+        false
     }
 
     private fun hookClicks(cl: ClassLoader) {
