@@ -553,6 +553,7 @@ class MainHook : IXposedHookLoadPackage {
         val st = state ?: return
         val ch = channel ?: return
 
+        // Recent (throttle 3 dtk)
         val now = System.currentTimeMillis()
         if (now - lastRecentLog.get() >= RECENT_LOG_INTERVAL_MS) {
             lastRecentLog.set(now)
@@ -560,38 +561,30 @@ class MainHook : IXposedHookLoadPackage {
         }
         sendToModule(HookContract.ACTION_RECENT, ch, payload, false)
 
-        // Grace period: payload antrean & window startup tidak boleh memicu stop
-        if (System.currentTimeMillis() - armedAt < GRACE_MS) return
-        
-        // ===== BLOKIR TURBO (level FCM) =====
-        // Payload alokasi order + blokir aktif + tidak ada sentuhan fisik baru
-        // -> TIDAK menerima otomatis: hapus state play agar spoof diam
-        val isAlloc = payload.contains("dx_alloc_display_job") ||
-            payload.contains("alloc")
-        if (st.blockAutoAccept && isAlloc &&
-            System.currentTimeMillis() - lastTouchAt > 800L
-        ) {
-            XposedBridge.log(
-                "[NarikTerus] $ch: TURBO DIBLOKIR di level FCM -> order manual"
-            )
-            // putuskan spoof seketika; overlay tetap tampil untuk tap manual
-            state = st.copy(playing = false)
-            ignoreOnUntil = System.currentTimeMillis() + POST_STOP_IGNORE_MS
-            sendToModule(HookContract.ACTION_TRIGGER, ch, payload, true)
-            return
-        }
+        if (!st.playing) return
 
-        // Filter mode: "terima" hanya pada CLICK; "notif" hanya pada kejadian muncul
+        // Grace: 10 dtk pertama setelah play, payload startup tidak boleh memicu
+        val inGrace = System.currentTimeMillis() - armedAt < GRACE_MS
+
+        // Filter mode: "terima" = hanya CLICK; "notif" = hanya kejadian muncul
         val isClick = payload.startsWith("CLICK{")
         if (isClick != (st.stopMode == "terima")) return
 
         val keywords = st.triggerKeywords.split(',')
             .map { it.trim() }
             .filter { it.isNotEmpty() }
-        if (keywords.isEmpty() || !st.playing || !st.triggerEnabled) return
+        if (keywords.isEmpty() || !st.triggerEnabled) return
 
         val lower = payload.lowercase()
-        if (keywords.any { lower.contains(it.lowercase()) }) {
+        val matched = keywords.any { lower.contains(it.lowercase()) }
+
+        // ===== DIAGNOSTIK: log setiap evaluasi saat playing =====
+        XposedBridge.log(
+            "[NarikTerus] $ch eval: match=$matched inGrace=$inGrace " +
+                "aktif=${st.triggerEnabled} mode=${st.stopMode} kw=${st.triggerKeywords}"
+        )
+
+        if (matched && !inGrace) {
             XposedBridge.log("[NarikTerus] $ch: TRIGGER ORDER MASUK -> auto-stop")
             state = st.copy(playing = false)
             sendToModule(HookContract.ACTION_TRIGGER, ch, payload, true)
