@@ -1014,6 +1014,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                         followMode = false
                         if (playingFor(ch)) stopChannel(ch)
                         startChannel(ch, pos)
+                        openTargetApp(ch)
                         dlg?.dismiss()
                     }
 
@@ -1372,6 +1373,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             refreshGrbChip()
             updateServiceButtonUi(btnGrb, badgeGrb, true)
             sendStateTo(grbTarget, "grb", true, grbDot?.position ?: pos, grbMethods, force = true)
+            openTargetApp("grb")
         } else {
             gjkPlaying = true
             if (gjkMarker == null) {
@@ -1393,6 +1395,20 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             refreshGjkChip()
             updateServiceButtonUi(btnGjk, badgeGjk, true)
             sendStateTo(gjkTarget, "gjk", true, gjkDot?.position ?: pos, gjkMethods, force = true)
+            openTargetApp("gjk")
+        }
+    }
+    
+    /** Buka app target channel (lengkari sesuai pilihan Target GRB/GJK). */
+    private fun openTargetApp(channel: String) {
+        val pkg = currentTarget(channel)
+        runCatching {
+            packageManager.getLaunchIntentForPackage(pkg)?.let {
+                it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                startActivity(it)
+            } ?: Toast.makeText(
+                this, "App target tidak ditemukan: $pkg", Toast.LENGTH_SHORT
+            ).show()
         }
     }
 
