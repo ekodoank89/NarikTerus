@@ -126,28 +126,22 @@ class MainHook : IXposedHookLoadPackage {
                 val blockKw = intent.getStringExtra("block_keywords") ?: "terima"
                 val oldPlaying = state?.playing
                 channel = newChannel
-                if (playing && System.currentTimeMillis() < ignoreOnUntil &&
-                    !intent.getBooleanExtra("force_play", false)
-                ) {
-                    XposedBridge.log(
-                        "[NarikTerus] $newChannel: ON diabaikan (jendela post-auto-stop)"
-                    )
-                    return
-                }
                 state = State(
                     playing, lat, lng, methods, trigger, triggerEnabled,
-                    stopMode, blockAuto, blockKw
+                    stopMode, blockAutoAccept, blockKeywords
                 )
-                if (playing) armedAt = System.currentTimeMillis()
+                // Arm grace HANYA saat transisi MATI->AKTIF (mulai play).
+                // Jangan di-set tiap broadcast: tick jitter (ON berkala)
+                // akan terus me-reset grace sehingga tidak pernah berakhir.
                 if (oldPlaying != playing || oldPlaying == null) {
+                    if (playing) armedAt = System.currentTimeMillis()
                     XposedBridge.log(
                         "[NarikTerus] $newChannel: state -> " +
                             (if (playing) "ON ($lat, $lng)" else "OFF") +
                             " metode=$methods trigger='$trigger' aktif=$triggerEnabled " +
-                            "mode=$stopMode blok=$blockAuto"
+                            "mode=$stopMode blok=$blockAutoAccept"
                     )
                 }
-
                 val pending = synchronized(pendingPayloads) {
                     val copy = pendingPayloads.toList()
                     pendingPayloads.clear()
