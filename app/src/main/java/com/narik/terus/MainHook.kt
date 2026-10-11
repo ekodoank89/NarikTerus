@@ -128,7 +128,7 @@ class MainHook : IXposedHookLoadPackage {
                 channel = newChannel
                 state = State(
                     playing, lat, lng, methods, trigger, triggerEnabled,
-                    stopMode, blockAutoAccept, blockKeywords
+                    stopMode, blockAuto, blockKw
                 )
                 // Arm grace HANYA saat transisi MATI->AKTIF (mulai play).
                 // Jangan di-set tiap broadcast: tick jitter (ON berkala)
@@ -139,9 +139,10 @@ class MainHook : IXposedHookLoadPackage {
                         "[NarikTerus] $newChannel: state -> " +
                             (if (playing) "ON ($lat, $lng)" else "OFF") +
                             " metode=$methods trigger='$trigger' aktif=$triggerEnabled " +
-                            "mode=$stopMode blok=$blockAutoAccept"
+                            "mode=$stopMode blok=$blockAuto"
                     )
                 }
+
                 val pending = synchronized(pendingPayloads) {
                     val copy = pendingPayloads.toList()
                     pendingPayloads.clear()
