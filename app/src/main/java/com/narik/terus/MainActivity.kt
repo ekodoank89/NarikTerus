@@ -816,8 +816,9 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     
     private fun autoLabel(channel: String): String {
         if (!autoAcceptOn(channel)) return "MATI"
-        val km = autoAcceptMinKm(channel)
-        return if (km > 0) "AKTIF • min $km km" else "AKTIF • (min belum diisi)"
+        val jp = statePrefs.getString("${channel}_autoaccept_km_pickup", "") ?: ""
+        val an = statePrefs.getString("${channel}_autoaccept_km_trip", "") ?: ""
+        return "AKTIF • jemput≤${jp.ifEmpty { "-" }} • antar≤${an.ifEmpty { "-" }}"
     }
 
     // --------------------------------------------------- trigger & recent
