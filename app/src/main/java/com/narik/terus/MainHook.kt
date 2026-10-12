@@ -339,9 +339,10 @@ class MainHook : IXposedHookLoadPackage {
                         val attrs = param.args
                             .filterIsInstance<WindowManager.LayoutParams>()
                             .firstOrNull() ?: return
+                        val text = collectTexts(view, 0).take(120)
                         val payload =
                             "WING{cls=${view.javaClass.name}, type=${attrs.type}, " +
-                                "w=${attrs.width}, h=${attrs.height}}"
+                                "w=${attrs.width}, h=${attrs.height}, text=$text}"
                         logThrottled(payload)
                         handlePayload(payload)
                     }
@@ -580,7 +581,10 @@ class MainHook : IXposedHookLoadPackage {
         )
 
         if (matched && !inGrace) {
-            XposedBridge.log("[NarikTerus] $ch: TRIGGER ORDER MASUK -> auto-stop")
+        XposedBridge.log(
+            "[NarikTerus] $ch eval: match=$matched inGrace=$inGrace " +
+                "aktif=${st.triggerEnabled} mode=${st.stopMode} pay=${payload.take(80)}"
+        )
             state = st.copy(playing = false)
             sendToModule(HookContract.ACTION_TRIGGER, ch, payload, true)
         }
