@@ -310,6 +310,56 @@
                                 android:textSize="14sp" />
                         </LinearLayout>
                         
+            <!-- Auto-terima GRB (by jarak km) -->
+            <LinearLayout
+                android:id="@+id/row_auto_grb"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="?attr/selectableItemBackground"
+                android:orientation="vertical"
+                android:paddingHorizontal="18dp"
+                android:paddingVertical="10dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/row_auto_grb"
+                    android:textColor="@color/row_title"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:id="@+id/val_auto_grb"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="#202124"
+                    android:textSize="14sp" />
+            </LinearLayout>
+
+            <!-- Auto-terima GJK (by jarak km) -->
+            <LinearLayout
+                android:id="@+id/row_auto_gjk"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="?attr/selectableItemBackground"
+                android:orientation="vertical"
+                android:paddingHorizontal="18dp"
+                android:paddingVertical="10dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/row_auto_gjk"
+                    android:textColor="@color/row_title"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:id="@+id/val_auto_gjk"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="#202124"
+                    android:textSize="14sp" />
+            </LinearLayout>
+                        
             <!-- Triger GRB -->
             <LinearLayout
                 android:id="@+id/row_trigger_grb"
