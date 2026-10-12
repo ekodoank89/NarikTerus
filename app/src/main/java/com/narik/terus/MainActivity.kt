@@ -405,6 +405,10 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private fun autoAcceptOn(channel: String): Boolean =
         statePrefs.getBoolean("${channel}_autoaccept", false)
 
+    /** Jarak minimum auto-terima (km), kosong = nonaktif. */
+    private fun autoAcceptMinKm(channel: String): Double =
+        statePrefs.getString("${channel}_autoaccept_km", null)?.toDoubleOrNull() ?: -1.0
+
     private fun showAutoAcceptEditor(channel: String) {
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -417,10 +421,11 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             setTypeface(null, Typeface.BOLD)
             textSize = 14f
         }
-        val inputMin = EditText(this).apply {
-            hint = "Harga minimum (Rp), kosong = nonaktif"
-            inputType = android.text.InputType.TYPE_CLASS_NUMBER
-            setText(statePrefs.getString("${channel}_autoaccept_min", ""))
+        val inputKm = EditText(this).apply {
+            hint = "Jarak minimum (km), kosong = nonaktif"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or
+                android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+            setText(statePrefs.getString("${channel}_autoaccept_km", ""))
         }
         val inputBtn = EditText(this).apply {
             hint = "Kata kunci tombol (mis. terima)"
@@ -438,7 +443,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             refreshToggle()
         }
         container.addView(toggle)
-        container.addView(inputMin)
+        container.addView(inputKm)
         container.addView(inputBtn)
 
         AlertDialog.Builder(this)
@@ -448,7 +453,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             .setView(container)
             .setPositiveButton(R.string.trigger_save) { _, _ ->
                 statePrefs.edit()
-                    .putString("${channel}_autoaccept_min", inputMin.text.toString().trim())
+                    .putString("${channel}_autoaccept_km", inputKm.text.toString().trim())
                     .putString("${channel}_autoaccept_btn", inputBtn.text.toString().trim())
                     .apply()
                 Toast.makeText(this, "Auto-terima disimpan", Toast.LENGTH_SHORT).show()
@@ -684,10 +689,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             getString(R.string.a11y_on) else getString(R.string.a11y_off)
         valBlockGrb.text = if (blockTurboFor("grb")) "AKTIF" else "MATI"
         valBlockGjk.text = if (blockTurboFor("gjk")) "AKTIF" else "MATI"
-        valAutoGrb.text = if (autoAcceptOn("grb"))
-            "AKTIF • min Rp ${statePrefs.getString("grb_autoaccept_min", "?")}" else "MATI"
-        valAutoGjk.text = if (autoAcceptOn("gjk"))
-            "AKTIF • min Rp ${statePrefs.getString("gjk_autoaccept_min", "?")}" else "MATI"
+        valAutoGrb.text = autoLabel("grb")
+        valAutoGjk.text = autoLabel("gjk")
     }
 
     private fun methodsLabel(mask: Long): String {
@@ -793,6 +796,12 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         if (channel == "grb") grbMethods = mask else gjkMethods = mask
         pushCurrentPosition(channel)
         refreshSetLabels()
+    }
+    
+    private fun autoLabel(channel: String): String {
+        if (!autoAcceptOn(channel)) return "MATI"
+        val km = autoAcceptMinKm(channel)
+        return if (km > 0) "AKTIF • min $km km" else "AKTIF • (min belum diisi)"
     }
 
     // --------------------------------------------------- trigger & recent
