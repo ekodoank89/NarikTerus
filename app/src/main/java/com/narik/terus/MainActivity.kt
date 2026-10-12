@@ -776,16 +776,19 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             )
             .setView(container)
             .setPositiveButton(R.string.trigger_save) { _, _ ->
+                val saved = input.text.toString().trim()
                 statePrefs.edit()
                     .putString(
                         "${channel}_trigger_" + stopModeFor(channel),
-                        input.text.toString().trim()
+                        saved
                     )
                     .apply()
                 val playing = playingFor(channel)
                 val pos = dotFor(channel)?.position ?: markerFor(channel)?.position
                 sendStateTo(currentTarget(channel), channel, playing, pos, methodsFor(channel))
-                Toast.makeText(this, R.string.trigger_saved, Toast.LENGTH_SHORT).show()
+                Toast.makeText(
+                    this, "Triger disimpan: $saved", Toast.LENGTH_LONG
+                ).show()
                 refreshSetLabels()
             }
             .setNeutralButton(R.string.recent_open) { _, _ -> showRecentList(channel) }
