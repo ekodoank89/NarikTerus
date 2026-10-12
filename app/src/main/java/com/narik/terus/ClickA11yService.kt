@@ -78,40 +78,50 @@ class ClickA11yService : AccessibilityService() {
         prefs: android.content.SharedPreferences
     ) {
         val enabled = prefs.getBoolean("${channel}_autoaccept", false)
-        val playing = prefs.getBoolean("${channel}_play", false)
-        if (!enabled || !playing) return
+        if (!enabled) return // bekerja apa pun status play/stop
 
         val now = System.currentTimeMillis()
         if (now - lastAutoAcceptAt < 1_500L) return // debounce
 
-        val minKm = prefs.getString("${channel}_autoaccept_km", null)
-            ?.replace(",", ".")?.toDoubleOrNull() ?: return
-        if (minKm <= 0.0) return
+        val maxJemput = prefs.getString("${channel}_autoaccept_km_pickup", null)
+            ?.replace(",", ".")?.toDoubleOrNull() ?: -1.0
+        val maxAntar = prefs.getString("${channel}_autoaccept_km_trip", null)
+            ?.replace(",", ".")?.toDoubleOrNull() ?: -1.0
+        // Keduanya kosong -> fitur tidak aktif
+        if (maxJemput <= 0.0 && maxAntar <= 0.0) return
+
         val btnKw = (prefs.getString("${channel}_autoaccept_btn", "terima") ?: "terima")
             .lowercase()
         if (btnKw.isBlank()) return
 
         val root = rootInActiveWindow ?: return
 
-        // 1) Kumpulkan semua jarak "X km" di jendela, ambil yang TERBESAR
-        //    (biasanya jarak trip pengantaran)
+        // Kumpulkan SEMUA jarak "X km" di jendela
         val kmRegex = Regex("([\\d]+[.,]?[\\d]*)\\s*km", RegexOption.IGNORE_CASE)
-        var maxKm = -1.0
+        val values = mutableListOf<Double>()
         walkNodes(root, 0) { t ->
             kmRegex.findAll(t).forEach { m ->
-                val v = m.groupValues[1].replace(",", ".").toDoubleOrNull() ?: -1.0
-                if (v > maxKm) maxKm = v
+                m.groupValues[1].replace(",", ".").toDoubleOrNull()?.let { values.add(it) }
             }
         }
-        if (maxKm < 0.0) return
+        if (values.isEmpty()) return
+
+        // Urut menurun: terbesar = jarak ANTAR, kedua = jarak JEMPUT
+        val sorted = values.sortedDescending()
+        val kmAntar = sorted[0]
+        val kmJemput = if (sorted.size >= 2) sorted[1] else -1.0
 
         android.util.Log.i(
             "NarikTerus",
-            "$channel: jarak terbaca $maxKm km (min $minKm km)"
+            "$channel: km jemput=$kmJemput (max ${if (maxJemput > 0) maxJemput else "-"}), " +
+                "km antar=$kmAntar (max ${if (maxAntar > 0) maxAntar else "-"})"
         )
-        if (maxKm < minKm) return // di bawah kriteria -> biarkan manual
 
-        // 2) Cari tombol sesuai kata kunci, naik ke leluhur yang clickable
+        // Evaluasi kriteria: hanya syarat yang DIISI yang dievaluasi
+        if (maxJemput > 0.0 && (kmJemput < 0.0 || kmJemput > maxJemput)) return
+        if (maxAntar > 0.0 && kmAntar > maxAntar) return
+
+        // Kedua syarat lolos -> cari tombol, klik
         val nodes = root.findAccessibilityNodeInfosByText(btnKw)
         for (n in nodes) {
             var cur: AccessibilityNodeInfo? = n
@@ -123,10 +133,18 @@ class ClickA11yService : AccessibilityService() {
                     lastAutoAcceptAt = System.currentTimeMillis()
                     android.util.Log.i(
                         "NarikTerus",
-                        "$channel: AUTO-TERIMA $maxKm km >= $minKm km, klik '$btnKw'"
+                        "$channel: AUTO-TERIMA (jemput ${fmt(kmJemput)}/$maxJemput, " +
+                            "antar ${fmt(kmAntar)}/$maxAntar), klik '$btnKw'"
                     )
-                    // Order diterima -> GPS asli (rantai auto-stop terbukti)
-                    stopChannel(channel, prefs, "AUTO-TERIMA $maxKm km (min $minKm)")
+
+                    // Bila spoof sedang ON -> auto-stop (GPS asli).
+                    // Bila stop -> GPS memang asli, tidak perlu apa-apa.
+                    if (prefs.getBoolean("${channel}_play", false)) {
+                        stopChannel(
+                            channel, prefs,
+                            "AUTO-TERIMA jemput=${fmt(kmJemput)} antar=${fmt(kmAntar)}"
+                        )
+                    }
                     return
                 }
                 cur = cur.parent
@@ -134,6 +152,9 @@ class ClickA11yService : AccessibilityService() {
             }
         }
     }
+
+    private fun fmt(v: Double): String =
+        if (v < 0) "?" else String.format(java.util.Locale.US, "%.2f", v)
 
     /** Telusuri seluruh node, panggil onText untuk tiap teks. */
     private fun walkNodes(
