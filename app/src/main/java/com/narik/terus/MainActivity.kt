@@ -143,6 +143,10 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private lateinit var rowBlockGjk: View
     private lateinit var valBlockGrb: TextView
     private lateinit var valBlockGjk: TextView
+    private lateinit var rowAutoGrb: View
+    private lateinit var rowAutoGjk: View
+    private lateinit var valAutoGrb: TextView
+    private lateinit var valAutoGjk: TextView
 
     private var map: GoogleMap? = null
     private var followMode = false
@@ -250,6 +254,10 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         rowBlockGjk = findViewById(R.id.row_block_gjk)
         valBlockGrb = findViewById(R.id.val_block_grb)
         valBlockGjk = findViewById(R.id.val_block_gjk)
+        rowAutoGrb = findViewById(R.id.row_auto_grb)
+        rowAutoGjk = findViewById(R.id.row_auto_gjk)
+        valAutoGrb = findViewById(R.id.val_auto_grb)
+        valAutoGjk = findViewById(R.id.val_auto_gjk)
         keepOverlaysClearOfSystemBars()
         // Real-time auto-stop: receiver ini menghentikan channel (jitter +
         // marker + tombol) seketika saat hook melaporkan order masuk.
@@ -353,6 +361,9 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             ).show()
             refreshSetLabels()
         }
+        
+        rowAutoGrb.setOnClickListener { showAutoAcceptEditor("grb") }
+        rowAutoGjk.setOnClickListener { showAutoAcceptEditor("gjk") }
 
         btnCloseMenu.setOnClickListener {
             menuPanel.isVisible = false
@@ -389,6 +400,62 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 if (playingFor(ch)) stopChannel(ch)
             }
         }
+    }
+    
+    private fun autoAcceptOn(channel: String): Boolean =
+        statePrefs.getBoolean("${channel}_autoaccept", false)
+
+    private fun showAutoAcceptEditor(channel: String) {
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val d = (16 * resources.displayMetrics.density).toInt()
+            setPadding(d, d / 2, d, 0)
+        }
+        val toggle = TextView(this).apply {
+            setPadding(0, 0, 0, 10)
+            setTextColor(0xFF1A73E8.toInt())
+            setTypeface(null, Typeface.BOLD)
+            textSize = 14f
+        }
+        val inputMin = EditText(this).apply {
+            hint = "Harga minimum (Rp), kosong = nonaktif"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            setText(statePrefs.getString("${channel}_autoaccept_min", ""))
+        }
+        val inputBtn = EditText(this).apply {
+            hint = "Kata kunci tombol (mis. terima)"
+            setSingleLine()
+            setText(statePrefs.getString("${channel}_autoaccept_btn", "terima"))
+        }
+        fun refreshToggle() {
+            toggle.text = "Auto-terima: ${if (autoAcceptOn(channel)) "AKTIF" else "MATI"}"
+        }
+        refreshToggle()
+        toggle.setOnClickListener {
+            statePrefs.edit()
+                .putBoolean("${channel}_autoaccept", !autoAcceptOn(channel))
+                .apply()
+            refreshToggle()
+        }
+        container.addView(toggle)
+        container.addView(inputMin)
+        container.addView(inputBtn)
+
+        AlertDialog.Builder(this)
+            .setTitle(
+                if (channel == "grb") "Auto-terima GRB" else "Auto-terima GJK"
+            )
+            .setView(container)
+            .setPositiveButton(R.string.trigger_save) { _, _ ->
+                statePrefs.edit()
+                    .putString("${channel}_autoaccept_min", inputMin.text.toString().trim())
+                    .putString("${channel}_autoaccept_btn", inputBtn.text.toString().trim())
+                    .apply()
+                Toast.makeText(this, "Auto-terima disimpan", Toast.LENGTH_SHORT).show()
+                refreshSetLabels()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     // --------------------------------------------------------------- peta
@@ -617,6 +684,10 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             getString(R.string.a11y_on) else getString(R.string.a11y_off)
         valBlockGrb.text = if (blockTurboFor("grb")) "AKTIF" else "MATI"
         valBlockGjk.text = if (blockTurboFor("gjk")) "AKTIF" else "MATI"
+        valAutoGrb.text = if (autoAcceptOn("grb"))
+            "AKTIF • min Rp ${statePrefs.getString("grb_autoaccept_min", "?")}" else "MATI"
+        valAutoGjk.text = if (autoAcceptOn("gjk"))
+            "AKTIF • min Rp ${statePrefs.getString("gjk_autoaccept_min", "?")}" else "MATI"
     }
 
     private fun methodsLabel(mask: Long): String {
