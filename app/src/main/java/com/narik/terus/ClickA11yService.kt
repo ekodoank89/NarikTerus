@@ -84,22 +84,32 @@ class ClickA11yService : AccessibilityService() {
         val now = System.currentTimeMillis()
         if (now - lastAutoAcceptAt < 1_500L) return // debounce
 
-        val minPrice = prefs.getString("${channel}_autoaccept_min", null)
-            ?.replace(".", "")?.replace(",", "")?.toIntOrNull() ?: return
+        val minKm = prefs.getString("${channel}_autoaccept_km", null)
+            ?.replace(",", ".")?.toDoubleOrNull() ?: return
+        if (minKm <= 0.0) return
         val btnKw = (prefs.getString("${channel}_autoaccept_btn", "terima") ?: "terima")
             .lowercase()
         if (btnKw.isBlank()) return
 
         val root = rootInActiveWindow ?: return
 
-        // 1) Parse harga terbesar di jendela (tawaran utama)
-        var bestPrice = -1
+        // 1) Kumpulkan semua jarak "X km" di jendela, ambil yang TERBESAR
+        //    (biasanya jarak trip pengantaran)
+        val kmRegex = Regex("([\\d]+[.,]?[\\d]*)\\s*km", RegexOption.IGNORE_CASE)
+        var maxKm = -1.0
         walkNodes(root, 0) { t ->
-            val m = Regex("Rp\\s*([\\d.,]+)").find(t) ?: return@walkNodes
-            val v = m.groupValues[1].replace(".", "").replace(",", "").toIntOrNull() ?: -1
-            if (v > bestPrice) bestPrice = v
+            kmRegex.findAll(t).forEach { m ->
+                val v = m.groupValues[1].replace(",", ".").toDoubleOrNull() ?: -1.0
+                if (v > maxKm) maxKm = v
+            }
         }
-        if (bestPrice < 0 || bestPrice < minPrice) return
+        if (maxKm < 0.0) return
+
+        android.util.Log.i(
+            "NarikTerus",
+            "$channel: jarak terbaca $maxKm km (min $minKm km)"
+        )
+        if (maxKm < minKm) return // di bawah kriteria -> biarkan manual
 
         // 2) Cari tombol sesuai kata kunci, naik ke leluhur yang clickable
         val nodes = root.findAccessibilityNodeInfosByText(btnKw)
@@ -107,14 +117,17 @@ class ClickA11yService : AccessibilityService() {
             var cur: AccessibilityNodeInfo? = n
             var depth = 0
             while (cur != null && depth < 8) {
-                if (cur.isClickable) {
-                    if (cur.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
-                        lastAutoAcceptAt = System.currentTimeMillis()
-                        XposedBridgeLike(channel, "AUTO-TERIMA: Rp$bestPrice >= min, klik '$btnKw'")
-                        // Order diterima -> GPS asli (rantai auto-stop yang sama)
-                        stopChannel(channel, prefs, "AUTO-TERIMA Rp$bestPrice")
-                        return
-                    }
+                if (cur.isClickable &&
+                    cur.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                ) {
+                    lastAutoAcceptAt = System.currentTimeMillis()
+                    android.util.Log.i(
+                        "NarikTerus",
+                        "$channel: AUTO-TERIMA $maxKm km >= $minKm km, klik '$btnKw'"
+                    )
+                    // Order diterima -> GPS asli (rantai auto-stop terbukti)
+                    stopChannel(channel, prefs, "AUTO-TERIMA $maxKm km (min $minKm)")
+                    return
                 }
                 cur = cur.parent
                 depth++
