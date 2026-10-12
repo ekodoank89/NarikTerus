@@ -549,7 +549,6 @@ class MainHook : IXposedHookLoadPackage {
         val st = state ?: return
         val ch = channel ?: return
 
-        // Recent (throttle 3 dtk)
         val now = System.currentTimeMillis()
         if (now - lastRecentLog.get() >= RECENT_LOG_INTERVAL_MS) {
             lastRecentLog.set(now)
@@ -559,10 +558,8 @@ class MainHook : IXposedHookLoadPackage {
 
         if (!st.playing) return
 
-        // Grace: 10 dtk pertama setelah play, payload startup tidak boleh memicu
         val inGrace = System.currentTimeMillis() - armedAt < GRACE_MS
 
-        // Filter mode: "terima" = hanya CLICK; "notif" = hanya kejadian muncul
         val isClick = payload.startsWith("CLICK{")
         if (isClick != (st.stopMode == "terima")) return
 
@@ -574,17 +571,13 @@ class MainHook : IXposedHookLoadPackage {
         val lower = payload.lowercase()
         val matched = keywords.any { lower.contains(it.lowercase()) }
 
-        // ===== DIAGNOSTIK: log setiap evaluasi saat playing =====
         XposedBridge.log(
             "[NarikTerus] $ch eval: match=$matched inGrace=$inGrace " +
-                "aktif=${st.triggerEnabled} mode=${st.stopMode} kw=${st.triggerKeywords}"
+                "aktif=${st.triggerEnabled} mode=${st.stopMode} pay=${payload.take(60)}"
         )
 
         if (matched && !inGrace) {
-        XposedBridge.log(
-            "[NarikTerus] $ch eval: match=$matched inGrace=$inGrace " +
-                "aktif=${st.triggerEnabled} mode=${st.stopMode} pay=${payload.take(80)}"
-        )
+            XposedBridge.log("[NarikTerus] $ch: TRIGGER ORDER MASUK -> auto-stop")
             state = st.copy(playing = false)
             sendToModule(HookContract.ACTION_TRIGGER, ch, payload, true)
         }
