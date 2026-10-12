@@ -76,4 +76,6 @@
     <string name="toast_block_turbo_on">Blokir Turbo AKTIF — orderan otomatis akan diblokir</string>
     <string name="toast_block_turbo_off">Blokir Turbo MATI</string>
     <string name="toast_perm_open">Membuka pengaturan izin…</string>
+    <string name="row_auto_grb">Auto-terima GRB (set bid/terima otomatis)</string>
+    <string name="row_auto_gjk">Auto-terima GJK (set bid/terima otomatis)</string>
 </resources>
