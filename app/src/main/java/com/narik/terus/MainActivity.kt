@@ -406,10 +406,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private fun autoAcceptOn(channel: String): Boolean =
         statePrefs.getBoolean("${channel}_autoaccept", false)
 
-    /** Jarak minimum auto-terima (km), kosong = nonaktif. */
-    private fun autoAcceptMinKm(channel: String): Double =
-        statePrefs.getString("${channel}_autoaccept_km", null)?.toDoubleOrNull() ?: -1.0
-
     private fun showAutoAcceptEditor(channel: String) {
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -422,11 +418,19 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             setTypeface(null, Typeface.BOLD)
             textSize = 14f
         }
-        val inputKm = EditText(this).apply {
-            hint = "Jarak minimum (km), kosong = nonaktif"
+        val inputJemput = EditText(this).apply {
+            hint = "Jemput max (km), kosong = tanpa syarat"
             inputType = android.text.InputType.TYPE_CLASS_NUMBER or
                 android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
-            setText(statePrefs.getString("${channel}_autoaccept_km", ""))
+            setSingleLine()
+            setText(statePrefs.getString("${channel}_autoaccept_km_pickup", ""))
+        }
+        val inputAntar = EditText(this).apply {
+            hint = "Antar max (km), kosong = tanpa syarat"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or
+                android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+            setSingleLine()
+            setText(statePrefs.getString("${channel}_autoaccept_km_trip", ""))
         }
         val inputBtn = EditText(this).apply {
             hint = "Kata kunci tombol (mis. terima)"
@@ -444,7 +448,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             refreshToggle()
         }
         container.addView(toggle)
-        container.addView(inputKm)
+        container.addView(inputJemput)
+        container.addView(inputAntar)
         container.addView(inputBtn)
 
         AlertDialog.Builder(this)
@@ -454,8 +459,18 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             .setView(container)
             .setPositiveButton(R.string.trigger_save) { _, _ ->
                 statePrefs.edit()
-                    .putString("${channel}_autoaccept_km", inputKm.text.toString().trim())
-                    .putString("${channel}_autoaccept_btn", inputBtn.text.toString().trim())
+                    .putString(
+                        "${channel}_autoaccept_km_pickup",
+                        inputJemput.text.toString().trim()
+                    )
+                    .putString(
+                        "${channel}_autoaccept_km_trip",
+                        inputAntar.text.toString().trim()
+                    )
+                    .putString(
+                        "${channel}_autoaccept_btn",
+                        inputBtn.text.toString().trim()
+                    )
                     .apply()
                 Toast.makeText(this, "Auto-terima disimpan", Toast.LENGTH_SHORT).show()
                 refreshSetLabels()
