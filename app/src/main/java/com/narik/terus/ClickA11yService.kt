@@ -4,6 +4,7 @@ import android.accessibilityservice.AccessibilityService
 import android.content.Intent
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityWindowInfo
 
 /**
  * Jalur aksesibilitas:
@@ -78,77 +79,116 @@ class ClickA11yService : AccessibilityService() {
         prefs: android.content.SharedPreferences
     ) {
         val enabled = prefs.getBoolean("${channel}_autoaccept", false)
-        if (!enabled) return // bekerja apa pun status play/stop
+        if (!enabled) return
 
         val now = System.currentTimeMillis()
         if (now - lastAutoAcceptAt < 1_500L) return // debounce
+
+        val targetPkg = prefs.getString("${channel}_target", null) ?: return
 
         val maxJemput = prefs.getString("${channel}_autoaccept_km_pickup", null)
             ?.replace(",", ".")?.toDoubleOrNull() ?: -1.0
         val maxAntar = prefs.getString("${channel}_autoaccept_km_trip", null)
             ?.replace(",", ".")?.toDoubleOrNull() ?: -1.0
-        // Keduanya kosong -> fitur tidak aktif
         if (maxJemput <= 0.0 && maxAntar <= 0.0) return
 
         val btnKw = (prefs.getString("${channel}_autoaccept_btn", "terima") ?: "terima")
             .lowercase()
         if (btnKw.isBlank()) return
 
-        val root = rootInActiveWindow ?: return
-
-        // Kumpulkan SEMUA jarak "X km" di jendela
+        // ===== Scan SEMUA jendela milik target (bukan hanya active window) =====
         val kmRegex = Regex("([\\d]+[.,]?[\\d]*)\\s*km", RegexOption.IGNORE_CASE)
-        val values = mutableListOf<Double>()
-        walkNodes(root, 0) { t ->
-            kmRegex.findAll(t).forEach { m ->
-                m.groupValues[1].replace(",", ".").toDoubleOrNull()?.let { values.add(it) }
-            }
-        }
-        if (values.isEmpty()) return
+        var foundKm = mutableListOf<Double>()
+        var clicked = false
+        var scannedWindows = 0
+        var bufferSample = ""
 
-        // Urut menurun: terbesar = jarak ANTAR, kedua = jarak JEMPUT
-        val sorted = values.sortedDescending()
-        val kmAntar = sorted[0]
-        val kmJemput = if (sorted.size >= 2) sorted[1] else -1.0
+        try {
+            for (w in windows) {
+                val root = w.root ?: continue
+                if (root.packageName?.toString() != targetPkg) continue
+                scannedWindows++
 
-        android.util.Log.i(
-            "NarikTerus",
-            "$channel: km jemput=$kmJemput (max ${if (maxJemput > 0) maxJemput else "-"}), " +
-                "km antar=$kmAntar (max ${if (maxAntar > 0) maxAntar else "-"})"
-        )
-
-        // Evaluasi kriteria: hanya syarat yang DIISI yang dievaluasi
-        if (maxJemput > 0.0 && (kmJemput < 0.0 || kmJemput > maxJemput)) return
-        if (maxAntar > 0.0 && kmAntar > maxAntar) return
-
-        // Kedua syarat lolos -> cari tombol, klik
-        val nodes = root.findAccessibilityNodeInfosByText(btnKw)
-        for (n in nodes) {
-            var cur: AccessibilityNodeInfo? = n
-            var depth = 0
-            while (cur != null && depth < 8) {
-                if (cur.isClickable &&
-                    cur.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                ) {
-                    lastAutoAcceptAt = System.currentTimeMillis()
-                    android.util.Log.i(
-                        "NarikTerus",
-                        "$channel: AUTO-TERIMA (jemput ${fmt(kmJemput)}/$maxJemput, " +
-                            "antar ${fmt(kmAntar)}/$maxAntar), klik '$btnKw'"
-                    )
-
-                    // Bila spoof sedang ON -> auto-stop (GPS asli).
-                    // Bila stop -> GPS memang asli, tidak perlu apa-apa.
-                    if (prefs.getBoolean("${channel}_play", false)) {
-                        stopChannel(
-                            channel, prefs,
-                            "AUTO-TERIMA jemput=${fmt(kmJemput)} antar=${fmt(kmAntar)}"
-                        )
-                    }
-                    return
+                // Gabungkan seluruh teks jendela menjadi satu buffer
+                val buf = StringBuilder()
+                walkNodes(root, 0) { t -> buf.append(t).append('\n') }
+                val allText = buf.toString()
+                if (bufferSample.isEmpty() && allText.isNotBlank()) {
+                    bufferSample = allText.take(150)
                 }
-                cur = cur.parent
-                depth++
+
+                // Jarak: regex atas GABUNGAN teks (aman utk node terpisah)
+                kmRegex.findAll(allText).forEach { m ->
+                    m.groupValues[1].replace(",", ".")
+                        .toDoubleOrNull()?.let { foundKm.add(it) }
+                }
+
+                // Tombol: cari node teks btnKw -> naik ke leluhur clickable
+                if (!clicked) {
+                    val nodes = root.findAccessibilityNodeInfosByText(btnKw)
+                    for (n in nodes) {
+                        var cur: AccessibilityNodeInfo? = n
+                        var depth = 0
+                        while (cur != null && depth < 8) {
+                            if (cur.isClickable &&
+                                cur.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                            ) {
+                                clicked = true
+                                break
+                            }
+                            cur = cur.parent
+                            depth++
+                        }
+                        if (clicked) break
+                    }
+                }
+            }
+        } catch (t: Throwable) {
+            android.util.Log.e("NarikTerus", "$channel scan error: $t")
+        }
+
+        if (scannedWindows == 0) return
+
+        // ===== Evaluasi kriteria =====
+        val sorted = foundKm.sortedDescending()
+        val kmAntar = sorted.getOrElse(0) { -1.0 }
+        val kmJemput = sorted.getOrElse(1) { -1.0 }
+
+        var pass = true
+        var reason = ""
+        if (maxJemput > 0.0) {
+            if (kmJemput < 0.0) { pass = false; reason = "km jemput tidak terbaca" }
+            else if (kmJemput > maxJemput) { pass = false; reason = "jemput $kmJemput > $maxJemput" }
+        }
+        if (pass && maxAntar > 0.0) {
+            if (kmAntar < 0.0) { pass = false; reason = "km antar tidak terbaca" }
+            else if (kmAntar > maxAntar) { pass = false; reason = "antar $kmAntar > $maxAntar" }
+        }
+
+        val now2 = System.currentTimeMillis()
+        if (now2 - lastRecentAt >= 3_000L) {
+            lastRecentAt = now2
+            val key = "recent_$channel"
+            val old = prefs.getString(key, null)?.split('\n')?.toMutableList() ?: mutableListOf()
+            old.add(0, "SCAN{win=$scannedWindows jemput=$kmJemput antar=$kmAntar " +
+                "pass=$pass $reason | ${bufferSample.replace('\n', ' ')}}")
+            while (old.size > 20) old.removeAt(old.size - 1)
+            prefs.edit().putString(key, old.joinToString("\n")).apply()
+        }
+
+        if (!pass) return
+
+        if (clicked) {
+            lastAutoAcceptAt = System.currentTimeMillis()
+            android.util.Log.i(
+                "NarikTerus",
+                "$channel: AUTO-TERIMA jemput=$kmJemput antar=$kmAntar (min " +
+                    "${if (maxJemput>0) "$maxJemput/" else ""}${if (maxAntar>0) maxAntar else "-"})"
+            )
+
+            // Bila spoof ON -> matikan (GPS asli). Bila stop -> memang asli.
+            if (prefs.getBoolean("${channel}_play", false)) {
+                stopChannel(channel, prefs, "AUTO-TERIMA jemput=$kmJemput antar=$kmAntar")
             }
         }
     }
