@@ -85,7 +85,7 @@ class MainHook : IXposedHookLoadPackage {
         synchronized(rndCache) {
             rndCache[loc] ?: run {
                 val v = FloatArray(3)
-                v[0] = 10f + rndAcc.nextFloat() * 40f      // kecepatan 10-50
+                v[0] = (10f + rndAcc.nextFloat() * 40f) / 3.6f   // kecepatan 10-50 km/jam
                 v[1] = rndAcc.nextFloat() * 360f           // arah 0-360
                 v[2] = 3f + rndAcc.nextFloat() * 12f       // akurasi 3-15 m
                 for (i in 0..2) v[i] = Math.round(v[i] * 10f) / 10f
