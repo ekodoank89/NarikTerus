@@ -285,26 +285,31 @@ if (lpparam.packageName == "com.grabtaxi.driver2") {
         } catch (_: Throwable) {
         }
     }
-
-// ===== [RND-GRB] Random speed / bearing / accuracy =====
-private val rndAcc = java.util.Random()
-private val rndCache = java.util.WeakHashMap<android.location.Location, FloatArray>()
-
-private fun rndTriple(loc: android.location.Location): FloatArray =
-    synchronized(rndCache) {
-        rndCache[loc] ?: run {
-            val v = FloatArray(3)
-            v[0] = (10f + rndAcc.nextFloat() * 40f) / 3.6f   // jadi 10–50 km/jam
-            v[1] = rndAcc.nextFloat() * 360f           // arah      0–360
-            v[2] = 3f  + rndAcc.nextFloat() * 12f      // akurasi   3–15 m
-            v[0] = Math.round(v[0] * 10f) / 10f
-            v[1] = Math.round(v[1] * 10f) / 10f
-            v[2] = Math.round(v[2] * 10f) / 10f
-            rndCache[loc] = v
-            v
-        }
-    }
     
+// ===== [RND-GRB v2] Random speed / bearing / accuracy =====
+fun hookLocRnd(method: String, idx: Int) {
+    XposedHelpers.findAndHookMethod(
+        android.location.Location::class.java, method,
+        object : XC_MethodHook() {
+            override fun beforeHookedMethod(param: MethodHookParam) {
+                try {
+                    if (channel != "grb") return
+                    val loc = param.thisObject as android.location.Location
+                    // deteksi otomatis: random HANYA jika Location ini hasil spoof
+                    val rawLat = XposedHelpers.getFloatField(loc, "mLatitude").toDouble()
+                    val rawLng = XposedHelpers.getDoubleField(loc, "mLongitude")
+                    if (loc.latitude == rawLat && loc.longitude == rawLng) return
+                    param.result = rndTriple(loc)[idx]
+                } catch (t: Throwable) {
+                    // diamkan — jangan sampai bikin app crash
+                }
+            }
+        })
+}
+hookLocRnd("getSpeed", 0)      // kecepatan 10–50
+hookLocRnd("getBearing", 1)    // arah 0–360
+hookLocRnd("getAccuracy", 2)   // akurasi 3–15 m
+XposedBridge.log("[NarikTerus] RND-GRB terpasang: speed/bearing/accuracy")
 
     // ------------------------------------- Activity lifecycle
 
