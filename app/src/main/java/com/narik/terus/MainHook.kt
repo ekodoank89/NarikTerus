@@ -26,6 +26,7 @@ import java.util.concurrent.atomic.AtomicLong
  * - Auto-stop 4 jalur: FCM, Activity lifecycle, WindowManager, klik/aksesibilitas.
  * - Blokir auto-terima Turbo: performClick yang cocok kata kunci blokir
  *   TANPA sentuhan fisik sebelumnya dibatalkan (order tetap manual).
+ * - [RND-GRB] kecepatan 10-50 / arah 0-360 / akurasi 3-15 (acak, khusus GRB).
  */
 class MainHook : IXposedHookLoadPackage {
 
@@ -73,6 +74,25 @@ class MainHook : IXposedHookLoadPackage {
 
     /** Payload yang tiba sebelum penugasan channel (push antrean awal). */
     private val pendingPayloads = mutableListOf<String>()
+
+    // ------------------ [RND-GRB] speed 10-50 / arah 0-360 / akurasi 3-15
+
+    private val rndAcc = java.util.Random()
+    private val rndCache = java.util.WeakHashMap<android.location.Location, FloatArray>()
+
+    /** Triple acak KONSISTEN per objek Location: [0]=speed [1]=bearing [2]=accuracy. */
+    private fun rndTriple(loc: android.location.Location): FloatArray =
+        synchronized(rndCache) {
+            rndCache[loc] ?: run {
+                val v = FloatArray(3)
+                v[0] = 10f + rndAcc.nextFloat() * 40f      // kecepatan 10-50
+                v[1] = rndAcc.nextFloat() * 360f           // arah 0-360
+                v[2] = 3f + rndAcc.nextFloat() * 12f       // akurasi 3-15 m
+                for (i in 0..2) v[i] = Math.round(v[i] * 10f) / 10f
+                rndCache[loc] = v
+                v
+            }
+        }
 
     override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
         val isNoise = lpparam.packageName == "com.google.android.webview"
@@ -193,26 +213,6 @@ class MainHook : IXposedHookLoadPackage {
                 }
                 param.result =
                     if (param.method.name == "getLatitude") st.lat else st.lng
-if (lpparam.packageName == "com.grabtaxi.driver2") {
-    val locCls = XposedHelpers.findClass("android.location.Location", lpparam.classLoader)
-
-    fun hookLoc(method: String, idx: Int) {
-        XposedHelpers.findAndHookMethod(locCls, method, object : XC_MethodHook() {
-            override fun beforeHookedMethod(param: MethodHookParam) {
-                // ▼▼ GANTI 1 BARIS INI dengan kondisi yang SAMA dipakai
-                //    hook getLatitude kamu (channel GRB + state ON) ▼▼
-                if (channel != "grb" || !stateOn) return
-
-                param.result = rndTriple(param.thisObject as android.location.Location)[idx]
-            }
-        })
-    }
-    hookLoc("getSpeed", 0)      // kecepatan
-    hookLoc("getBearing", 1)    // arah
-    hookLoc("getAccuracy", 2)   // akurasi
-
-    XposedBridge.log("[NarikTerus] hook speed/bearing/accuracy terpasang (GRB)")
-}
             }
         }
         try {
@@ -222,24 +222,31 @@ if (lpparam.packageName == "com.grabtaxi.driver2") {
             XposedBridge.log("[NarikTerus] gagal hook Location: $t")
         }
 
-        fun attr(name: String, value: Any?, flag: Long) {
+        // Atribut lokasi: GRB = nilai ACAK (RND-GRB), channel lain = nilai tetap.
+        // Tetap diatur oleh toggle "Metode hook" di menu SET (bit di st.methods).
+        fun attr(name: String, flag: Long, fixed: Any?, idx: Int = -1) {
             try {
                 XposedHelpers.findAndHookMethod(
                     "android.location.Location", cl, name,
                     object : XC_MethodHook() {
                         override fun afterHookedMethod(param: MethodHookParam) {
                             val st = state ?: return
-                            if (st.playing && (st.methods and flag) != 0L) param.result = value
+                            if (!st.playing || (st.methods and flag) == 0L) return
+                            param.result =
+                                if (idx >= 0 && channel == "grb")
+                                    rndTriple(param.thisObject as android.location.Location)[idx]
+                                else fixed
                         }
                     }
                 )
             } catch (_: Throwable) {
             }
         }
-        attr("getSpeed", 0f, HookContract.FLAG_SPEED)
-        attr("getBearing", 0f, HookContract.FLAG_BEARING)
-        attr("getAccuracy", 10f, HookContract.FLAG_ACCURACY)
-        attr("getAltitude", 35.0, HookContract.FLAG_ALTITUDE)
+        attr("getSpeed", HookContract.FLAG_SPEED, 0f, 0)        // GRB: acak 10-50
+        attr("getBearing", HookContract.FLAG_BEARING, 0f, 1)    // GRB: acak 0-360
+        attr("getAccuracy", HookContract.FLAG_ACCURACY, 10f, 2) // GRB: acak 3-15
+        attr("getAltitude", HookContract.FLAG_ALTITUDE, 35.0)
+        XposedBridge.log("[NarikTerus] hook lokasi terpasang (RND GRB: speed/bearing/accuracy)")
 
         val mock = object : XC_MethodHook() {
             override fun afterHookedMethod(param: MethodHookParam) {
@@ -285,49 +292,6 @@ if (lpparam.packageName == "com.grabtaxi.driver2") {
         } catch (_: Throwable) {
         }
     }
-    
-// ===== [RND-GRB FINAL] speed 10-50 / arah 0-360 / akurasi 3-15 (GRB) =====
-private val rndAcc = java.util.Random()
-private val rndCache = java.util.WeakHashMap<android.location.Location, FloatArray>()
-
-private fun rndTriple(loc: android.location.Location): FloatArray =
-    synchronized(rndCache) {
-        rndCache[loc] ?: run {
-            val v = FloatArray(3)
-            v[0] = 10f + rndAcc.nextFloat() * 40f      // kecepatan 10-50
-            v[1] = rndAcc.nextFloat() * 360f           // arah 0-360
-            v[2] = 3f + rndAcc.nextFloat() * 12f       // akurasi 3-15 m
-            for (i in 0..2) v[i] = Math.round(v[i] * 10f) / 10f
-            rndCache[loc] = v
-            v
-        }
-    }
-
-private fun installRndGrb() {
-    val targets = arrayOf("getSpeed" to 0, "getBearing" to 1, "getAccuracy" to 2)
-    for ((method, idx) in targets) {
-        XposedHelpers.findAndHookMethod(
-            android.location.Location::class.java, method,
-            object : XC_MethodHook() {
-                override fun beforeHookedMethod(param: MethodHookParam) {
-                    try {
-                        if (channel != "grb") return
-                        val loc = param.thisObject as android.location.Location
-                        // random HANYA jika Location ini hasil spoof:
-                        val rawLat = XposedHelpers.getFloatField(loc, "mLatitude").toDouble()
-                        val rawLng = XposedHelpers.getDoubleField(loc, "mLongitude")
-                        if (loc.latitude == rawLat && loc.longitude == rawLng) return
-                        param.result = rndTriple(loc)[idx]
-                    } catch (t: Throwable) {
-                        // diamkan — jangan bikin app crash
-                    }
-                }
-            })
-    }
-    XposedBridge.log("[NarikTerus] RND-GRB terpasang: speed/bearing/accuracy")
-}
-
-init { installRndGrb() }
 
     // ------------------------------------- Activity lifecycle
 
