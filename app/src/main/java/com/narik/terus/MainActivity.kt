@@ -34,6 +34,7 @@ import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ListView
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
@@ -399,6 +400,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         refreshMenuLabels()
         refreshSetLabels()
         setupExpiryFeature()
+        makePageScrollable(pageSet)   // [SCROLL] isi tab SET bisa digulir
 
         (supportFragmentManager.findFragmentById(R.id.map) as SupportMapFragment)
             .getMapAsync(this)
@@ -1004,6 +1006,58 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             .setView(android.widget.ScrollView(this).apply { addView(container) })
             .setPositiveButton(android.R.string.ok, null)
             .show()
+    }
+
+    // ------------------------------------- [SCROLL] halaman tab SET digulir
+
+    /** [SCROLL] Bungkus halaman tab SET dengan ScrollView + beri ruang napas
+     *  atas/bawah supaya isi menu tidak rapat menempel pinggir layar.
+     *  Aman: jika halaman sudah di dalam ScrollView, cukup perlebar ruangnya. */
+    private fun makePageScrollable(page: View) {
+        try {
+            val d = (10 * resources.displayMetrics.density).toInt()
+            val existing = page.parent as? ScrollView
+            if (existing != null) {
+                existing.clipToPadding = false
+                existing.setPadding(
+                    existing.paddingLeft, existing.paddingTop + d,
+                    existing.paddingRight, existing.paddingBottom + d * 2
+                )
+                return
+            }
+            val parent = page.parent as? ViewGroup ?: return
+            val lp = page.layoutParams
+            val idx = parent.indexOfChild(page)
+            parent.removeView(page)
+            try {
+                val scroll = ScrollView(this).apply {
+                    clipToPadding = false
+                    isVerticalScrollBarEnabled = true
+                    setPadding(0, d, 0, d * 2)
+                    // [FIX NAVBAR] ruang bawah menyesuaikan tinggi navigasi
+                    // sistem agar baris terakhir tetap bisa di-tap.
+                    setOnApplyWindowInsetsListener { v, insets ->
+                        v.setPadding(0, d, 0, d * 2 + insets.systemWindowInsetBottom)
+                        insets
+                    }
+                }
+                scroll.addView(
+                    page,
+                    android.widget.FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    )
+                )
+                parent.addView(scroll, idx, lp)
+            } catch (t: Throwable) {
+                // Pulihkan posisi lama bila pembungkusan gagal.
+                if (page.parent == null) {
+                    parent.addView(page, minOf(idx, parent.childCount), lp)
+                }
+                throw t
+            }
+        } catch (_: Throwable) {
+        }
     }
 
     // --------------------------------------------- expired aplikasi (sewa)
