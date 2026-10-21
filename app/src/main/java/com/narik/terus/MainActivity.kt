@@ -5,6 +5,7 @@ import android.annotation.SuppressLint
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.BroadcastReceiver
+import android.content.DialogInterface
 import android.content.IntentFilter
 import android.content.Context
 import android.content.Intent
@@ -26,6 +27,7 @@ import android.provider.Settings
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.View
+import android.view.ViewGroup
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
@@ -65,6 +67,8 @@ import com.google.android.material.slider.Slider
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 import java.util.Random
 
@@ -85,6 +89,13 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
         private const val DOT_COLOR_GRB = 0xFFEA4335.toInt()
         private const val DOT_COLOR_GJK = 0xFF34A853.toInt()
+
+        // [EXPIRED] Pengaturan kedaluwarsa aplikasi (default: AKTIF 3 hari)
+        private const val EXPIRY_ENABLED_DEFAULT = true
+        private const val EXPIRY_DAYS_DEFAULT = "3"
+        private const val EXPIRY_DEFAULT_DAYS = 3L
+        private const val DAY_MS = 86_400_000L
+        private const val EXPIRY_TICK_MS = 60_000L
     }
 
     private data class Favorite(val name: String, val lat: Double, val lng: Double)
@@ -158,6 +169,14 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private var lastSecretTapAt = 0L
     private var cameraRestored = false
 
+    // [EXPIRED] State tampilan fitur kedaluwarsa
+    private var rowExpired: TextView? = null
+    private var expiredRowTaps = 0
+    private var lastExpiredRowTapAt = 0L
+    private var expiryShield: View? = null
+    private var expiryShieldTaps = 0
+    private var lastExpiryShieldTapAt = 0L
+
     private var grbMarker: Marker? = null
     private var gjkMarker: Marker? = null
     private var grbDot: Marker? = null
@@ -196,6 +215,14 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private val random = Random()
 
     private val statePrefs by lazy { getSharedPreferences(PREFS_NAME, MODE_PRIVATE) }
+
+    /** [EXPIRED] Cek kedaluwarsa tiap 60 detik selagi activity hidup. */
+    private val expiryTicker = object : Runnable {
+        override fun run() {
+            applyExpiryState()
+            jitterHandler.postDelayed(this, EXPIRY_TICK_MS)
+        }
+    }
 
     // ------------------------------------------------------------ onCreate
 
@@ -371,6 +398,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         }
         refreshMenuLabels()
         refreshSetLabels()
+        setupExpiryFeature()
 
         (supportFragmentManager.findFragmentById(R.id.map) as SupportMapFragment)
             .getMapAsync(this)
@@ -381,6 +409,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     override fun onResume() {
         super.onResume()
         syncStopRequests()
+        applyExpiryState()   // [EXPIRED] cek ulang setiap kembali ke aplikasi
         refreshSetLabels()   // ← TAMBAHKAN: refresh label aksesibilitas & lainnya
     }
 
@@ -707,6 +736,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         valBlockGjk.text = if (blockTurboFor("gjk")) "AKTIF" else "MATI"
         valAutoGrb.text = autoLabel("grb")
         valAutoGjk.text = autoLabel("gjk")
+        rowExpired?.text = expiryLabel()
     }
 
     private fun methodsLabel(mask: Long): String {
@@ -974,6 +1004,251 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             .setView(android.widget.ScrollView(this).apply { addView(container) })
             .setPositiveButton(android.R.string.ok, null)
             .show()
+    }
+
+    // --------------------------------------------- expired aplikasi (sewa)
+
+    /** [EXPIRED] Pertama kali dibuka: default AKTIF, 3 hari sejak sekarang. */
+    private fun initExpiryDefaults() {
+        if (statePrefs.getLong("expiry_at", -1L) != -1L) return
+        statePrefs.edit()
+            .putBoolean("expiry_enabled", EXPIRY_ENABLED_DEFAULT)
+            .putString("expiry_days", EXPIRY_DAYS_DEFAULT)
+            .putLong("expiry_at", System.currentTimeMillis() + EXPIRY_DEFAULT_DAYS * DAY_MS)
+            .apply()
+    }
+
+    /** [EXPIRED] Pasang label rahasia tab SET + pelindung peta + pengecek waktu. */
+    private fun setupExpiryFeature() {
+        initExpiryDefaults()
+        attachExpiryRow()
+        attachExpiryShield()
+        applyExpiryState()
+        jitterHandler.postDelayed(expiryTicker, EXPIRY_TICK_MS)
+    }
+
+    private fun expiryEnabled(): Boolean =
+        statePrefs.getBoolean("expiry_enabled", EXPIRY_ENABLED_DEFAULT)
+
+    private fun expiryAt(): Long = statePrefs.getLong("expiry_at", -1L)
+
+    /** [EXPIRED] true kalau peta harus dikosongkan sekarang. */
+    private fun isExpired(): Boolean {
+        if (!expiryEnabled()) return false
+        val at = expiryAt()
+        if (at <= 0L) return false
+        return System.currentTimeMillis() >= at
+    }
+
+    private fun expiryLabel(): String {
+        if (!expiryEnabled()) return "Expired: MATI"
+        val at = expiryAt()
+        if (at <= 0L) return "Expired: AKTIF"
+        val diff = at - System.currentTimeMillis()
+        if (diff <= 0L) return "Expired: KEDALUWARSA"
+        val d = diff / DAY_MS
+        val h = (diff % DAY_MS) / 3_600_000L
+        return if (d > 0) "Expired: AKTIF • sisa ${d}h ${h}j"
+        else "Expired: AKTIF • sisa ${h}j"
+    }
+
+    private fun expiryInfoText(): String {
+        if (!expiryEnabled()) return "Saat ini: MATI — peta tidak akan dikosongkan."
+        val at = expiryAt()
+        if (at <= 0L) return "Saat ini: AKTIF — jadwal belum ditentukan."
+        val fmt = SimpleDateFormat("dd MMM yyyy HH:mm", Locale.getDefault())
+        val lewat = if (System.currentTimeMillis() >= at) " (sudah lewat)" else ""
+        return "Saat ini: peta kosong mulai ${fmt.format(Date(at))}$lewat"
+    }
+
+    /** [EXPIRED] Label "Expired" di tab SET — tap 7x untuk membuka dialog. */
+    private fun attachExpiryRow() {
+        if (rowExpired != null) return
+        val density = resources.displayMetrics.density
+        fun dp(v: Int) = (v * density).toInt()
+        val row = TextView(this).apply {
+            text = expiryLabel()
+            textSize = 14f
+            setTextColor(0xFF202124.toInt())
+            setPadding(dp(20), dp(14), dp(20), dp(14))
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { onExpiredRowTapped() }
+        }
+        val targets = listOfNotNull(
+            rowAutoGjk.parent as? ViewGroup,
+            pageSet as? ViewGroup,
+            pageChip as? ViewGroup
+        )
+        for (parent in targets) {
+            try {
+                parent.addView(row)
+                rowExpired = row
+                break
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
+    private fun onExpiredRowTapped() {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastExpiredRowTapAt > SECRET_TAP_TIMEOUT_MS) expiredRowTaps = 0
+        lastExpiredRowTapAt = now
+        if (++expiredRowTaps >= SECRET_TAPS_REQUIRED) {
+            expiredRowTaps = 0
+            showExpiryDialog()
+        }
+    }
+
+    /** [EXPIRED] Lapisan putih penutup peta saat kedaluwarsa (tap 7x = dialog). */
+    private fun attachExpiryShield() {
+        if (expiryShield != null) return
+        try {
+            val root = findViewById<ViewGroup>(android.R.id.content)
+            val shield = View(this).apply {
+                setBackgroundColor(0xFFFFFFFF.toInt())
+                isVisible = false
+                isClickable = true
+                setOnClickListener { onShieldTapped() }
+            }
+            root.addView(
+                shield,
+                ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+            )
+            expiryShield = shield
+        } catch (_: Throwable) {
+            expiryShield = null
+        }
+    }
+
+    private fun onShieldTapped() {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastExpiryShieldTapAt > SECRET_TAP_TIMEOUT_MS) expiryShieldTaps = 0
+        lastExpiryShieldTapAt = now
+        if (++expiryShieldTaps >= SECRET_TAPS_REQUIRED) {
+            expiryShieldTaps = 0
+            showExpiryDialog()
+        }
+    }
+
+    /** [EXPIRED] Terapkan status: peta kosong + stop semua channel saat hangus. */
+    private fun applyExpiryState() {
+        val expired = isExpired()
+        if (expired) {
+            if (grbPlaying) stopChannel("grb")
+            if (gjkPlaying) stopChannel("gjk")
+            chipCoords.isVisible = false
+            chipGrb.isVisible = false
+            chipGjk.isVisible = false
+            map?.uiSettings?.apply {
+                isZoomGesturesEnabled = false
+                isScrollGesturesEnabled = false
+                isRotateGesturesEnabled = false
+                isTiltGesturesEnabled = false
+            }
+        } else if (expiryShield?.isVisible == true) {
+            // Pulihkan tampilan setelah diperpanjang / dimatikan.
+            chipCoords.isVisible = statePrefs.getBoolean("chip_pin_visible", true)
+            showGrbChip = statePrefs.getBoolean("chip_grb_visible", true)
+            showGjkChip = statePrefs.getBoolean("chip_gjk_visible", true)
+            refreshGrbChip()
+            refreshGjkChip()
+            map?.uiSettings?.apply {
+                isZoomGesturesEnabled = true
+                isScrollGesturesEnabled = true
+                isRotateGesturesEnabled = true
+                isTiltGesturesEnabled = true
+            }
+        }
+        expiryShield?.isVisible = expired
+        rowExpired?.text = expiryLabel()
+    }
+
+    /** [EXPIRED] Dialog pengaturan: saklar AKTIF/MATI + lama hari (boleh desimal). */
+    private fun showExpiryDialog() {
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val d = (16 * resources.displayMetrics.density).toInt()
+            setPadding(d, d / 2, d, 0)
+        }
+
+        var enabledNow = expiryEnabled()
+        val toggle = TextView(this).apply {
+            setPadding(0, 0, 0, 10)
+            setTextColor(0xFF1A73E8.toInt())
+            setTypeface(null, Typeface.BOLD)
+            textSize = 14f
+            text = "Expired: ${if (enabledNow) "AKTIF" else "MATI"}"
+            setOnClickListener {
+                enabledNow = !enabledNow
+                text = "Expired: ${if (enabledNow) "AKTIF" else "MATI"}"
+            }
+        }
+
+        val input = EditText(this).apply {
+            hint = "Lama aktif (hari), mis. 3 — atau 0.5 = 12 jam"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or
+                android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+            setSingleLine()
+            setText(
+                statePrefs.getString("expiry_days", EXPIRY_DAYS_DEFAULT)
+                    ?: EXPIRY_DAYS_DEFAULT
+            )
+        }
+
+        val info = TextView(this).apply {
+            textSize = 12f
+            setPadding(0, 12, 0, 8)
+            text = expiryInfoText()
+        }
+
+        container.addView(toggle)
+        container.addView(input)
+        container.addView(info)
+
+        val dlg = AlertDialog.Builder(this)
+            .setTitle("Set expired aplikasi")
+            .setView(container)
+            .setPositiveButton(R.string.trigger_save, null)
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+        dlg.setOnShowListener {
+            dlg.getButton(DialogInterface.BUTTON_POSITIVE).setOnClickListener {
+                if (!enabledNow) {
+                    statePrefs.edit().putBoolean("expiry_enabled", false).apply()
+                    onExpirySaved()
+                    dlg.dismiss()
+                    return@setOnClickListener
+                }
+                val days = input.text.toString().trim().replace(',', '.').toDoubleOrNull()
+                if (days == null || days <= 0.0) {
+                    Toast.makeText(
+                        this,
+                        "Isi lama aktif (hari) dengan angka lebih dari 0",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    return@setOnClickListener
+                }
+                val at = System.currentTimeMillis() + (days * DAY_MS).toLong()
+                statePrefs.edit()
+                    .putBoolean("expiry_enabled", true)
+                    .putString("expiry_days", days.toString())
+                    .putLong("expiry_at", at)
+                    .apply()
+                onExpirySaved()
+                dlg.dismiss()
+            }
+        }
+        dlg.show()
+    }
+
+    private fun onExpirySaved() {
+        applyExpiryState()
+        rowExpired?.text = expiryLabel()
+        Toast.makeText(this, "Setelan expired disimpan", Toast.LENGTH_SHORT).show()
     }
 
     // ------------------------------------------------------------ favorite
@@ -1451,6 +1726,10 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     // --------------------------------------------------- play/stop channel
 
     private fun startChannel(channel: String, pos: LatLng) {
+        if (isExpired()) {
+            applyExpiryState()
+            return
+        }
         val googleMap = map ?: return
         if (channel == "grb") {
             grbPlaying = true
@@ -1539,11 +1818,19 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     }
 
     private fun toggleGrb() {
+        if (isExpired()) {
+            applyExpiryState()
+            return
+        }
         if (grbPlaying) stopChannel("grb")
         else startChannel("grb", map?.cameraPosition?.target ?: return)
     }
 
     private fun toggleGjk() {
+        if (isExpired()) {
+            applyExpiryState()
+            return
+        }
         if (gjkPlaying) stopChannel("gjk")
         else startChannel("gjk", map?.cameraPosition?.target ?: return)
     }
@@ -1558,6 +1845,14 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         )
 
     private fun restoreServiceStates() {
+        // [EXPIRED] Sudah kedaluwarsa: jangan hidupkan ulang channel, paksa mati.
+        if (isExpired()) {
+            statePrefs.edit()
+                .putBoolean("grb_play", false)
+                .putBoolean("gjk_play", false)
+                .apply()
+            return
+        }
         if (statePrefs.getBoolean("grb_play", false)) {
             val cLat = statePrefs.getString("grb_center_lat", null)?.toDoubleOrNull()
             val cLng = statePrefs.getString("grb_center_lng", null)?.toDoubleOrNull()
