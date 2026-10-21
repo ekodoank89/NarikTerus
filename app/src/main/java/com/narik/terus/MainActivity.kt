@@ -1082,7 +1082,10 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         )
         for (parent in targets) {
             try {
-                parent.addView(row)
+                // [FIX NAVBAR] Taruh di paling atas daftar: baris paling bawah
+                // layar tertutup tombol navigasi (back/home/recent) sehingga
+                // tidak bisa di-tap. Posisi teratas selalu aman di-tap.
+                parent.addView(row, 0)
                 rowExpired = row
                 break
             } catch (_: Throwable) {
@@ -1215,6 +1218,12 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             .setPositiveButton(R.string.trigger_save, null)
             .setNegativeButton(android.R.string.cancel, null)
             .create()
+        // [FIX NAVBAR] Jaga tombol Simpan/Batal & kolom input tidak tertutup
+        // navigasi sistem: beri padding bawah setinggi navbar (jika ada).
+        dlg.window?.decorView?.setOnApplyWindowInsetsListener { v, insets ->
+            v.setPadding(0, 0, 0, insets.systemWindowInsetBottom)
+            insets
+        }
         dlg.setOnShowListener {
             dlg.getButton(DialogInterface.BUTTON_POSITIVE).setOnClickListener {
                 if (!enabledNow) {
