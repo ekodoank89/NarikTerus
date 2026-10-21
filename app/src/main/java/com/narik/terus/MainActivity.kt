@@ -1067,6 +1067,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         if (statePrefs.getLong("expiry_at", -1L) != -1L) return
         statePrefs.edit()
             .putBoolean("expiry_enabled", EXPIRY_ENABLED_DEFAULT)
+            .putBoolean("expiry_unlimited", false)
             .putString("expiry_days", EXPIRY_DAYS_DEFAULT)
             .putLong("expiry_at", System.currentTimeMillis() + EXPIRY_DEFAULT_DAYS * DAY_MS)
             .apply()
@@ -1084,11 +1085,16 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private fun expiryEnabled(): Boolean =
         statePrefs.getBoolean("expiry_enabled", EXPIRY_ENABLED_DEFAULT)
 
+    /** [UNLIMITED] true = expire tanpa batas waktu, peta tidak pernah kosong. */
+    private fun expiryUnlimited(): Boolean =
+        statePrefs.getBoolean("expiry_unlimited", false)
+
     private fun expiryAt(): Long = statePrefs.getLong("expiry_at", -1L)
 
     /** [EXPIRED] true kalau peta harus dikosongkan sekarang. */
     private fun isExpired(): Boolean {
         if (!expiryEnabled()) return false
+        if (expiryUnlimited()) return false   // [UNLIMITED] tidak pernah hangus
         val at = expiryAt()
         if (at <= 0L) return false
         return System.currentTimeMillis() >= at
@@ -1096,6 +1102,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     private fun expiryLabel(): String {
         if (!expiryEnabled()) return "Expired: MATI"
+        if (expiryUnlimited()) return "Expired: UNLIMITED"
         val at = expiryAt()
         if (at <= 0L) return "Expired: AKTIF"
         val diff = at - System.currentTimeMillis()
@@ -1108,6 +1115,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     private fun expiryInfoText(): String {
         if (!expiryEnabled()) return "Saat ini: MATI — peta tidak akan dikosongkan."
+        if (expiryUnlimited())
+            return "Saat ini: UNLIMITED — peta tidak akan pernah dikosongkan."
         val at = expiryAt()
         if (at <= 0L) return "Saat ini: AKTIF — jadwal belum ditentukan."
         val fmt = SimpleDateFormat("dd MMM yyyy HH:mm", Locale.getDefault())
@@ -1224,7 +1233,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         rowExpired?.text = expiryLabel()
     }
 
-    /** [EXPIRED] Dialog pengaturan: saklar AKTIF/MATI + lama hari (boleh desimal). */
+    /** [EXPIRED] Dialog pengaturan: saklar AKTIF/MATI + Unlimited + lama hari. */
     private fun showExpiryDialog() {
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -1233,6 +1242,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         }
 
         var enabledNow = expiryEnabled()
+        var unlimitedNow = expiryUnlimited()
         val toggle = TextView(this).apply {
             setPadding(0, 0, 0, 10)
             setTextColor(0xFF1A73E8.toInt())
@@ -1254,6 +1264,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 statePrefs.getString("expiry_days", EXPIRY_DAYS_DEFAULT)
                     ?: EXPIRY_DAYS_DEFAULT
             )
+            isEnabled = !unlimitedNow
+            alpha = if (unlimitedNow) 0.4f else 1f
         }
 
         val info = TextView(this).apply {
@@ -1262,7 +1274,27 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             text = expiryInfoText()
         }
 
+        // [UNLIMITED] Saklar tanpa batas waktu: peta tidak pernah dikosongkan.
+        val toggleUnl = TextView(this).apply {
+            setPadding(0, 12, 0, 10)
+            setTextColor(0xFF1A73E8.toInt())
+            setTypeface(null, Typeface.BOLD)
+            textSize = 14f
+            text = "Unlimited: ${if (unlimitedNow) "AKTIF" else "MATI"}"
+            setOnClickListener {
+                unlimitedNow = !unlimitedNow
+                text = "Unlimited: ${if (unlimitedNow) "AKTIF" else "MATI"}"
+                input.isEnabled = !unlimitedNow
+                input.alpha = if (unlimitedNow) 0.4f else 1f
+                info.text = if (unlimitedNow)
+                    "Unlimited AKTIF — peta tidak akan pernah dikosongkan."
+                else
+                    expiryInfoText()
+            }
+        }
+
         container.addView(toggle)
+        container.addView(toggleUnl)
         container.addView(input)
         container.addView(info)
 
@@ -1281,11 +1313,25 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         dlg.setOnShowListener {
             dlg.getButton(DialogInterface.BUTTON_POSITIVE).setOnClickListener {
                 if (!enabledNow) {
-                    statePrefs.edit().putBoolean("expiry_enabled", false).apply()
+                    statePrefs.edit()
+                        .putBoolean("expiry_enabled", false)
+                        .putBoolean("expiry_unlimited", false)
+                        .apply()
                     onExpirySaved()
                     dlg.dismiss()
                     return@setOnClickListener
                 }
+                if (unlimitedNow) {
+                    // [UNLIMITED] Tanpa batas waktu — hapus jadwal hangus.
+                    statePrefs.edit()
+                        .putBoolean("expiry_enabled", true)
+                        .putBoolean("expiry_unlimited", true)
+                        .apply()
+                    onExpirySaved()
+                    dlg.dismiss()
+                    return@setOnClickListener
+                }
+                statePrefs.edit().putBoolean("expiry_unlimited", false).apply()
                 val days = input.text.toString().trim().replace(',', '.').toDoubleOrNull()
                 if (days == null || days <= 0.0) {
                     Toast.makeText(
